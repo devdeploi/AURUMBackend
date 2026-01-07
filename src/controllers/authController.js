@@ -217,4 +217,21 @@ const verifyOtp = async (req, res) => {
     }
 };
 
-export { authUser, registerUser, authMerchant, registerMerchant, forgotPassword, resetPassword, verifyOtp };
+// @desc    Check if email exists
+// @route   POST /api/check-email
+// @access  Public
+const checkEmailExists = async (req, res) => {
+    const { email } = req.body;
+
+    // Check in both User and Merchant collections
+    const userExists = await User.findOne({ email });
+    const merchantExists = await Merchant.findOne({ email });
+
+    if (userExists || merchantExists) {
+        return res.json({ exists: true, message: 'Email already registered' });
+    } else {
+        return res.json({ exists: false });
+    }
+};
+
+export { authUser, registerUser, authMerchant, registerMerchant, checkEmailExists, forgotPassword, resetPassword, verifyOtp };
