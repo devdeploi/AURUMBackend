@@ -109,12 +109,28 @@ const updateMerchantProfile = async (req, res) => {
         merchant.plan = req.body.plan || merchant.plan;
         merchant.paymentId = req.body.paymentId || merchant.paymentId;
 
+        // Update Bank Details
         if (req.body.bankDetails) {
             merchant.bankDetails = {
-                accountName: req.body.bankDetails.accountName || merchant.bankDetails?.accountName,
+                ...merchant.bankDetails, // Keep existing fields
+                accountHolderName: req.body.bankDetails.accountHolderName || merchant.bankDetails?.accountHolderName,
                 accountNumber: req.body.bankDetails.accountNumber || merchant.bankDetails?.accountNumber,
                 ifscCode: req.body.bankDetails.ifscCode || merchant.bankDetails?.ifscCode,
-                bankName: req.body.bankDetails.bankName || merchant.bankDetails?.bankName
+                bankName: req.body.bankDetails.bankName || merchant.bankDetails?.bankName,
+                branchName: req.body.bankDetails.branchName || merchant.bankDetails?.branchName,
+                verifiedName: req.body.bankDetails.verifiedName || merchant.bankDetails?.verifiedName,
+                verificationStatus: req.body.bankDetails.verificationStatus || merchant.bankDetails?.verificationStatus || 'pending'
+            };
+        }
+
+        // Update PAN Details
+        if (req.body.panDetails) {
+            merchant.panDetails = {
+                ...merchant.panDetails, // Keep existing
+                panNumber: req.body.panDetails.panNumber || merchant.panDetails?.panNumber,
+                panImage: req.body.panDetails.panImage || merchant.panDetails?.panImage,
+                verifiedName: req.body.panDetails.verifiedName || merchant.panDetails?.verifiedName,
+                status: req.body.panDetails.status || merchant.panDetails?.status || 'unverified'
             };
         }
 

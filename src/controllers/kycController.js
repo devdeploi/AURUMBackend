@@ -53,7 +53,7 @@ const verifyBankAccount = async (req, res) => {
 // @route   POST /api/kyc/verify-pan
 // @access  Public
 const verifyPAN = async (req, res) => {
-    const { panNumber } = req.body;
+    const { panNumber, name } = req.body;
 
     // Simulate API delay
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -63,8 +63,9 @@ const verifyPAN = async (req, res) => {
     }
 
     // Mock Response
-    // We assume the PAN corresponds to the "VERIFIED MERCHANT NAME" we used in bank verification for consistency in happy path
-    const mockVerifiedName = "VERIFIED MERCHANT NAME";
+    // Use the provided name to ensure it matches the bank details in the frontend check
+    // If no name provided, fall back to default
+    const mockVerifiedName = name ? name.toUpperCase() : "VERIFIED MERCHANT NAME";
 
     res.json({
         status: 'success',
