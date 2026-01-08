@@ -39,11 +39,11 @@ const merchantSchema = mongoose.Schema({
         verificationStatus: { type: String, enum: ['pending', 'verified', 'failed'], default: 'pending' },
         beneficiaryId: { type: String } // For payout integration
     },
-    panDetails: {
-        panNumber: { type: String },
-        panImage: { type: String },
-        verifiedName: { type: String }, // Returned from PAN Verify API
-        status: { type: String, enum: ['unverified', 'verified', 'failed'], default: 'unverified' }
+    gstin: {
+        type: String,
+    },
+    addressProof: {
+        type: String,
     },
 
     role: {
@@ -63,6 +63,8 @@ const merchantSchema = mongoose.Schema({
     }],
     resetPasswordOtp: String,
     resetPasswordExpire: Date,
+    loginOtp: String,
+    loginOtpExpire: Date,
 }, {
     timestamps: true,
 });
