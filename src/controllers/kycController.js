@@ -134,53 +134,6 @@ const verifyPAN = async (req, res) => {
 //   }
 // };
 
-// const verifyPAN = async (req, res) => {
-//   const { panNumber } = req.body;
-
-//   if (!panNumber || panNumber.length !== 10) {
-//     return res.status(400).json({
-//       status: "failed",
-//       message: "Invalid PAN number"
-//     });
-//   }
-
-//   try {
-//     const response = await axios.post(
-//       "https://api.cashfree.com/verification/pan",
-//       { pan: panNumber },
-//       {
-//         headers: {
-//           "x-client-id": process.env.CASHFREE_CLIENT_ID,
-//           "x-client-secret": process.env.CASHFREE_CLIENT_SECRET,
-//           "x-api-version": "2022-09-01",
-//           "Content-Type": "application/json"
-//         }
-//       }
-//     );
-
-//     if (!response.data.valid) {
-//       return res.status(400).json({
-//         status: "failed",
-//         message: "PAN verification failed"
-//       });
-//     }
-
-//     res.json({
-//       status: "success",
-//       data: {
-//         verifiedName: response.data.name,
-//         panType: response.data.category
-//       },
-//       message: "PAN verified successfully"
-//     });
-
-//   } catch (error) {
-//     res.status(400).json({
-//       status: "failed",
-//       message: "Unable to verify PAN"
-//     });
-//   }
-// };
 
 export { verifyBankAccount, verifyPAN };
 
