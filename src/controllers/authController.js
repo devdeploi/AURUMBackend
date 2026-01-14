@@ -19,6 +19,9 @@ const authUser = async (req, res) => {
             name: user.name,
             email: user.email,
             role: user.role,
+            phone: user.phone,
+            address: user.address,
+            profileImage: user.profileImage,
             token: generateToken(user._id),
         });
     } else {
@@ -53,6 +56,9 @@ const registerUser = async (req, res) => {
             name: user.name,
             email: user.email,
             role: user.role,
+            phone: user.phone,
+            address: user.address,
+            profileImage: user.profileImage,
             token: generateToken(user._id),
         });
     } else {
@@ -398,8 +404,10 @@ const sendLoginOtp = async (req, res) => {
 const sendRegistrationOtp = async (req, res) => {
     const { email } = req.body;
 
-    const exists = await Merchant.findOne({ email });
-    if (exists) {
+    const userExists = await User.findOne({ email });
+    const merchantExists = await Merchant.findOne({ email });
+
+    if (userExists || merchantExists) {
         return res.status(400).json({ message: 'Email already registered' });
     }
 
