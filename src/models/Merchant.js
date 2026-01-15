@@ -58,6 +58,17 @@ const merchantSchema = mongoose.Schema({
     paymentId: {
         type: String,
     },
+    subscriptionStartDate: {
+        type: Date,
+    },
+    subscriptionExpiryDate: {
+        type: Date,
+    },
+    subscriptionStatus: {
+        type: String,
+        enum: ['active', 'expired', 'cancelled'],
+        default: 'active', // Will be managed based on dates
+    },
     shopImages: [{
         type: String,
     }],

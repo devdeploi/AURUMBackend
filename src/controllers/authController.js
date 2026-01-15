@@ -84,6 +84,27 @@ const authMerchant = async (req, res) => {
             return;
         }
 
+        // Check Subscription Expiry
+        if (merchant.subscriptionExpiryDate) {
+            const now = new Date();
+            const expiry = new Date(merchant.subscriptionExpiryDate);
+            const gracePeriodEnd = new Date(expiry);
+            gracePeriodEnd.setDate(gracePeriodEnd.getDate() + 1); // 1 day grace period
+
+            if (now > expiry) {
+                // Auto change status if not already expired
+                if (merchant.subscriptionStatus !== 'expired') {
+                    merchant.subscriptionStatus = 'expired';
+                    await merchant.save();
+                }
+
+                // If grace period passed, we STILL allow login so they can renew on dashboard
+                // The frontend will handle the blocking UI
+            }
+        }
+
+        const isExpired = merchant.subscriptionStatus === 'expired' || (merchant.subscriptionExpiryDate && new Date() > new Date(merchant.subscriptionExpiryDate));
+
         // Direct Login - No OTP needed for password login
         res.json({
             _id: merchant._id,
@@ -92,6 +113,9 @@ const authMerchant = async (req, res) => {
             role: merchant.role,
             plan: merchant.plan,
             token: generateToken(merchant._id),
+            subscriptionStatus: merchant.subscriptionStatus,
+            subscriptionExpiryDate: merchant.subscriptionExpiryDate,
+            isGracePeriod: isExpired && new Date() <= new Date(new Date(merchant.subscriptionExpiryDate).getTime() + 24 * 60 * 60 * 1000),
             otpSent: false
         });
     } else {

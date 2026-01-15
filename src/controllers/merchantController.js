@@ -1,6 +1,9 @@
 import Merchant from '../models/Merchant.js';
+import ChitPlan from '../models/ChitPlan.js';
 import { encrypt } from '../utils/encryption.js';
 import sendEmail from '../utils/sendEmail.js';
+import Razorpay from 'razorpay';
+import crypto from 'crypto';
 
 // @desc    Get all merchants
 // @route   GET /api/merchants
@@ -14,6 +17,11 @@ const getMerchants = async (req, res) => {
         ? { status: req.query.status }
         : {};
 
+    // Filter by subscription status
+    const subscriptionFilter = req.query.subscriptionStatus
+        ? { subscriptionStatus: req.query.subscriptionStatus }
+        : {};
+
     // Search by name (optional)
     const keywordFilter = req.query.keyword
         ? {
@@ -24,7 +32,7 @@ const getMerchants = async (req, res) => {
         }
         : {};
 
-    const filter = { ...statusFilter, ...keywordFilter };
+    const filter = { ...statusFilter, ...subscriptionFilter, ...keywordFilter };
 
     const total = await Merchant.countDocuments(filter);
 
@@ -65,6 +73,17 @@ const updateMerchantStatus = async (req, res) => {
     if (merchant) {
         const oldStatus = merchant.status;
         merchant.status = status;
+
+        if (status === 'Approved' && oldStatus !== 'Approved') {
+            const now = new Date();
+            const endDate = new Date(now);
+            endDate.setDate(endDate.getDate() + 30);
+
+            merchant.subscriptionStartDate = now;
+            merchant.subscriptionExpiryDate = endDate;
+            merchant.subscriptionStatus = 'active';
+        }
+
         const updatedMerchant = await merchant.save();
 
         // Send Email Notification
@@ -206,4 +225,148 @@ const updateMerchantProfile = async (req, res) => {
     }
 };
 
-export { getMerchants, getMerchantById, updateMerchantStatus, deleteMerchant, updateMerchantProfile };
+// @desc    Renew merchant plan
+// @route   POST /api/merchants/renew-plan
+// @access  Private/Merchant
+const renewMerchantPlan = async (req, res) => {
+    const { plan } = req.body; // 'Standard' or 'Premium'
+
+    // Ensure req.user exists (middleware should handle this)
+    if (!req.user || !req.user._id) {
+        return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    const merchantId = req.user._id;
+    const merchant = await Merchant.findById(merchantId);
+
+    if (!merchant) {
+        return res.status(404).json({ message: 'Merchant not found' });
+    }
+
+    const chitPlanCount = await ChitPlan.countDocuments({ merchant: merchantId });
+
+    // "if 6 chits is previous is fully used then he is forced to get premium"
+    // "if his chit has under 3 then he can selected any plan"
+    // Interpretation: >= 6 requires Premium. < 6 allows Standard/Premium.
+    if (chitPlanCount >= 6 && plan !== 'Premium') {
+        return res.status(400).json({ message: 'You have utilized 6 or more chits. You must upgrade to Premium Plan.' });
+    }
+
+    // Update Plan and Subscription
+    merchant.plan = plan;
+
+    const now = new Date();
+    const currentExpiry = merchant.subscriptionExpiryDate ? new Date(merchant.subscriptionExpiryDate) : new Date(0);
+    let newExpiryDate;
+
+    if (currentExpiry > now) {
+        newExpiryDate = new Date(currentExpiry);
+        newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+    } else {
+        newExpiryDate = new Date(now);
+        newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+    }
+
+    merchant.subscriptionStartDate = now;
+    merchant.subscriptionExpiryDate = newExpiryDate;
+    merchant.subscriptionStatus = 'active';
+
+    const updatedMerchant = await merchant.save();
+
+    res.json(updatedMerchant);
+};
+
+// @desc    Create Razorpay Order for Renewal
+// @route   POST /api/merchants/create-renewal-order
+// @access  Private/Merchant
+const createRenewalOrder = async (req, res) => {
+    const { plan } = req.body;
+    const instance = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+
+    // Define Prices
+    const prices = {
+        'Standard': 1500, // INR
+        'Premium': 5000
+    };
+
+    if (!prices[plan]) {
+        return res.status(400).json({ message: 'Invalid plan selected' });
+    }
+
+    const options = {
+        amount: prices[plan] * 100, // amount in paisa
+        currency: "INR",
+        receipt: `rnw_${Date.now()}`, // Shortened receipt ID
+    };
+
+    try {
+        const order = await instance.orders.create(options);
+        res.json({ order, keyId: process.env.RAZORPAY_KEY_ID });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Order creation failed' });
+    }
+};
+
+// @desc    Verify Razorpay Payment and Renew
+// @route   POST /api/merchants/verify-renewal
+// @access  Private/Merchant
+const verifyRenewalPayment = async (req, res) => {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = req.body;
+
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+
+    const expectedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(body.toString())
+        .digest("hex");
+
+    if (expectedSignature === razorpay_signature) {
+        // Payment Success
+        const merchant = await Merchant.findById(req.user._id);
+
+        // 1. Update Payment Info
+        // In a real app, save to a Payment Log collection
+
+        // 2. Renew Subscription
+        merchant.plan = plan;
+
+        const now = new Date();
+        const currentExpiry = merchant.subscriptionExpiryDate ? new Date(merchant.subscriptionExpiryDate) : new Date(0);
+        let newExpiryDate;
+
+        // If currently valid (expiry in future), extend from THAT date
+        if (currentExpiry > now) {
+            newExpiryDate = new Date(currentExpiry);
+            newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+        } else {
+            // Expired, so start fresh from now
+            newExpiryDate = new Date(now);
+            newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+        }
+
+        merchant.subscriptionStartDate = now; // Track last payment/renewal date 
+        merchant.subscriptionExpiryDate = newExpiryDate;
+        merchant.subscriptionStatus = 'active';
+
+        const updated = await merchant.save();
+
+        res.json({ success: true, merchant: updated });
+    } else {
+        res.status(400).json({ success: false, message: "Invalid Signature" });
+    }
+};
+
+export {
+    getMerchants,
+    getMerchantById,
+    updateMerchantStatus,
+    deleteMerchant,
+    updateMerchantProfile,
+    renewMerchantPlan,
+    createRenewalOrder,
+    verifyRenewalPayment
+};
