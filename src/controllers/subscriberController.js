@@ -35,7 +35,8 @@ const getMerchantSubscribers = async (req, res) => {
                                 name: sub.user.name,
                                 email: sub.user.email,
                                 phone: sub.user.phone,
-                                profileImage: sub.user.profileImage
+                                profileImage: sub.user.profileImage || null,
+                                address: sub.user.address || null
                             },
                             plan: {
                                 _id: plan._id,

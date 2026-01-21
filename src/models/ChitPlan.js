@@ -38,6 +38,17 @@ const chitPlanSchema = mongoose.Schema({
             status: {
                 type: String, // 'active', 'completed'
                 default: 'active'
+            },
+            installmentsPaid: {
+                type: Number,
+                default: 0
+            },
+            totalPaid: {
+                type: Number,
+                default: 0
+            },
+            lastPaymentDate: {
+                type: Date
             }
         }
     ]

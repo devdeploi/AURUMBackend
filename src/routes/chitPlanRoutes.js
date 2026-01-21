@@ -1,5 +1,5 @@
 import express from 'express';
-import { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan, getMySubscribedPlans } from '../controllers/chitPlanController.js';
+import { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan, getMySubscribedPlans, getUserSubscribedPlans } from '../controllers/chitPlanController.js';
 import { protect, merchantOnly } from '../middleware/authMiddleware.js';
 
 import { getMerchantSubscribers } from '../controllers/subscriberController.js';
@@ -12,6 +12,7 @@ router.route('/')
 
 router.get('/my-subscribers', protect, merchantOnly, getMerchantSubscribers);
 router.get('/merchant/:id', getMerchantChitPlans);
+router.get('/user/:userId', protect, getUserSubscribedPlans);
 router.get('/my-plans', protect, getMySubscribedPlans);
 // router.get('/merchant/:id', getMerchantChitPlans); // Already there
 router.route('/:id')

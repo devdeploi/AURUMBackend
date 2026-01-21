@@ -2,6 +2,12 @@ import ChitPlan from '../models/ChitPlan.js';
 import Payment from '../models/Payment.js';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
+import sendEmail from '../utils/sendEmail.js';
+import {
+    planCreatedMerchantTemplate,
+    subscriptionSuccessTemplate,
+    subscriptionAlertMerchantTemplate
+} from '../utils/emailTemplates.js';
 
 // @desc    Create a new chit plan (Merchant only)
 // @route   POST /api/chit-plans
@@ -27,6 +33,19 @@ const createChitPlan = async (req, res) => {
     });
 
     const createdChitPlan = await chitPlan.save();
+
+    // Send Plan Created Email
+    try {
+        const { subject, html } = planCreatedMerchantTemplate(req.user.name, planName);
+        await sendEmail({
+            email: req.user.email,
+            subject,
+            html
+        });
+    } catch (error) {
+        console.error("Email send failed (Plan Created)", error);
+    }
+
     res.status(201).json(createdChitPlan);
 };
 
@@ -123,7 +142,27 @@ const subscribeToChitPlan = async (req, res) => {
         chitPlan.subscribers.push(subscription);
         await chitPlan.save();
 
+        // Send Email Notifications
+        try {
+            // 1. To User
+            const userTemplate = subscriptionSuccessTemplate(req.user.name, chitPlan.planName, chitPlan.merchant.name);
+            await sendEmail({
+                email: req.user.email,
+                subject: userTemplate.subject,
+                html: userTemplate.html
+            });
 
+            // 2. To Merchant
+            const merchantTemplate = subscriptionAlertMerchantTemplate(chitPlan.merchant.name, req.user.name, chitPlan.planName);
+            await sendEmail({
+                email: chitPlan.merchant.email,
+                subject: merchantTemplate.subject,
+                html: merchantTemplate.html
+            });
+
+        } catch (error) {
+            console.error("Email send failed (Subscription)", error);
+        }
 
         // Payout to merchant is now likely handled via Route transfers in createSubscriptionOrder or separately.
         // We do NOT call payoutToMerchant here anymore to avoid double transfers or errors if using Route.
@@ -144,7 +183,7 @@ const getMySubscribedPlans = async (req, res) => {
         }).populate('merchant', 'name email phone address');
 
         // Transform for analytics
-        const myPlans = plans.map(plan => {
+        const myPlans = await Promise.all(plans.map(async plan => {
             const sub = plan.subscribers.find(s => s.user.toString() === req.user._id.toString());
             const installmentsPaid = sub.installmentsPaid || 1; // Default to 1 if not tracked yet
             const joinedDate = new Date(sub.joinedAt);
@@ -156,6 +195,12 @@ const getMySubscribedPlans = async (req, res) => {
             // Remaining
             const remainingMonths = Math.max(0, plan.durationMonths - installmentsPaid);
             const totalSaved = installmentsPaid * plan.monthlyAmount;
+
+            // Fetch History
+            const history = await Payment.find({
+                chitPlan: plan._id,
+                user: req.user._id
+            }).sort({ createdAt: -1 });
 
             return {
                 _id: plan._id,
@@ -169,9 +214,10 @@ const getMySubscribedPlans = async (req, res) => {
                 installmentsPaid,
                 remainingMonths,
                 totalSaved,
-                status: sub.status
+                status: sub.status,
+                history // Added history
             };
-        });
+        }));
 
         res.json(myPlans);
 
@@ -230,4 +276,55 @@ const deleteChitPlan = async (req, res) => {
     }
 };
 
-export { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan, getMySubscribedPlans };
+// @desc    Get specific user's subscribed plans (Admin)
+// @route   GET /api/chit-plans/user/:userId
+// @access  Private/Admin
+const getUserSubscribedPlans = async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        const plans = await ChitPlan.find({
+            'subscribers.user': userId
+        }).populate('merchant', 'name email phone address');
+
+        const userPlans = await Promise.all(plans.map(async plan => {
+            const sub = plan.subscribers.find(s => s.user.toString() === userId.toString());
+            const installmentsPaid = sub.installmentsPaid || 1;
+            const joinedDate = new Date(sub.joinedAt);
+
+            const nextDueDate = new Date(joinedDate);
+            nextDueDate.setMonth(nextDueDate.getMonth() + installmentsPaid);
+
+            const remainingMonths = Math.max(0, plan.durationMonths - installmentsPaid);
+            const totalSaved = installmentsPaid * plan.monthlyAmount;
+
+            // Fetch History
+            const history = await Payment.find({
+                chitPlan: plan._id,
+                user: userId
+            }).sort({ createdAt: -1 });
+
+            return {
+                _id: plan._id,
+                planName: plan.planName,
+                merchant: plan.merchant,
+                totalAmount: plan.totalAmount,
+                monthlyAmount: plan.monthlyAmount,
+                durationMonths: plan.durationMonths,
+                joinedAt: sub.joinedAt,
+                nextDueDate,
+                installmentsPaid,
+                remainingMonths,
+                totalSaved,
+                status: sub.status,
+                history
+            };
+        }));
+
+        res.json(userPlans);
+
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching user plans' });
+    }
+};
+
+export { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan, getMySubscribedPlans, getUserSubscribedPlans };

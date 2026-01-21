@@ -21,8 +21,19 @@ const paymentSchema = mongoose.Schema({
         required: true,
     },
     paymentId: {
-        type: String, // PayPal transaction ID
-        required: true,
+        type: String, // PayPal transaction ID or generated ID
+        required: false,
+    },
+    type: {
+        type: String,
+        enum: ['online', 'offline'],
+        default: 'online'
+    },
+    proofImage: {
+        type: String
+    },
+    notes: {
+        type: String
     },
     status: {
         type: String,
