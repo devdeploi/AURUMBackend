@@ -1,4 +1,7 @@
 import ChitPlan from '../models/ChitPlan.js';
+import Payment from '../models/Payment.js';
+import crypto from 'crypto';
+import mongoose from 'mongoose';
 
 // @desc    Create a new chit plan (Merchant only)
 // @route   POST /api/chit-plans
@@ -70,10 +73,23 @@ const getChitPlans = async (req, res) => {
 // @route   POST /api/chit-plans/:id/subscribe
 // @access  Private
 const subscribeToChitPlan = async (req, res) => {
-    const chitPlan = await ChitPlan.findById(req.params.id);
+    const { paymentId, orderId, signature } = req.body;
+    const chitPlan = await ChitPlan.findById(req.params.id).populate('merchant');
 
     if (chitPlan) {
-        // Check if already subscribed
+        // 1. Verify Payment Signature
+        const body = orderId + "|" + paymentId;
+        const expectedSignature = crypto
+            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+            .update(body.toString())
+            .digest('hex');
+
+        if (expectedSignature !== signature) {
+            res.status(400).json({ message: 'Invalid payment signature' });
+            return;
+        }
+
+        // 2. Check if already subscribed
         const alreadySubscribed = chitPlan.subscribers.find(
             (r) => r.user.toString() === req.user._id.toString()
         );
@@ -83,16 +99,84 @@ const subscribeToChitPlan = async (req, res) => {
             return;
         }
 
+        // 3. Create Payment Record
+        const payment = new Payment({
+            user: req.user._id,
+            merchant: chitPlan.merchant._id,
+            chitPlan: chitPlan._id,
+            amount: chitPlan.monthlyAmount, // First installment
+            paymentId: paymentId,
+            orderId: orderId,
+            status: 'Completed',
+            paymentDetails: { razorpay_payment_id: paymentId, razorpay_order_id: orderId, razorpay_signature: signature }
+        });
+        await payment.save();
+
+        // 4. Add User to Subscribers
         const subscription = {
             user: req.user._id,
+            joinedAt: Date.now(),
+            installmentsPaid: 1, // First one paid
+            totalPaid: chitPlan.monthlyAmount
         };
 
         chitPlan.subscribers.push(subscription);
         await chitPlan.save();
 
-        res.status(201).json({ message: 'Subscribed successfully' });
+
+
+        // Payout to merchant is now likely handled via Route transfers in createSubscriptionOrder or separately.
+        // We do NOT call payoutToMerchant here anymore to avoid double transfers or errors if using Route.
+
+        res.status(201).json({ message: 'Subscribed successfully', subscription });
     } else {
         res.status(404).json({ message: 'Chit plan not found' });
+    }
+};
+
+// @desc    Get logged in user's subscribed plans
+// @route   GET /api/chit-plans/my-plans
+// @access  Private
+const getMySubscribedPlans = async (req, res) => {
+    try {
+        const plans = await ChitPlan.find({
+            'subscribers.user': req.user._id
+        }).populate('merchant', 'name email phone address');
+
+        // Transform for analytics
+        const myPlans = plans.map(plan => {
+            const sub = plan.subscribers.find(s => s.user.toString() === req.user._id.toString());
+            const installmentsPaid = sub.installmentsPaid || 1; // Default to 1 if not tracked yet
+            const joinedDate = new Date(sub.joinedAt);
+
+            // Calculate next due date (approx 1 month from join date + months paid)
+            const nextDueDate = new Date(joinedDate);
+            nextDueDate.setMonth(nextDueDate.getMonth() + installmentsPaid);
+
+            // Remaining
+            const remainingMonths = Math.max(0, plan.durationMonths - installmentsPaid);
+            const totalSaved = installmentsPaid * plan.monthlyAmount;
+
+            return {
+                _id: plan._id,
+                planName: plan.planName,
+                merchant: plan.merchant,
+                totalAmount: plan.totalAmount,
+                monthlyAmount: plan.monthlyAmount,
+                durationMonths: plan.durationMonths,
+                joinedAt: sub.joinedAt,
+                nextDueDate,
+                installmentsPaid,
+                remainingMonths,
+                totalSaved,
+                status: sub.status
+            };
+        });
+
+        res.json(myPlans);
+
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching plans' });
     }
 };
 
@@ -146,4 +230,4 @@ const deleteChitPlan = async (req, res) => {
     }
 };
 
-export { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan };
+export { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan, getMySubscribedPlans };

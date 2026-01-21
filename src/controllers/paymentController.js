@@ -1,20 +1,9 @@
 import paypal from 'paypal-rest-sdk';
-import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import Payment from '../models/Payment.js';
 import ChitPlan from '../models/ChitPlan.js';
 import Merchant from '../models/Merchant.js';
-
-paypal.configure({
-    'mode': process.env.PAYPAL_MODE || 'sandbox',
-    'client_id': process.env.PAYPAL_CLIENT_ID,
-    'client_secret': process.env.PAYPAL_CLIENT_SECRET
-});
-
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder'
-});
+import razorpay from '../config/razorpay.js';
 
 // @desc    Initiate PayPal Payment
 // @route   POST /api/payments/pay
@@ -145,29 +134,62 @@ const cancelPayment = (req, res) => {
     res.json({ message: 'Payment Cancelled' });
 };
 
-// @desc    Create Razorpay Order for Subscription
+// @desc    Create Razorpay Order for Subscription (Standard or Route Split)
 // @route   POST /api/payments/create-subscription-order
 // @access  Public
 const createSubscriptionOrder = async (req, res) => {
-    const { amount, currency = 'INR' } = req.body;
-
-    // Remove any non-numeric characters from amount (e.g. "₹1500/mo" -> 1500)
-    const numericAmount = parseFloat(amount.toString().replace(/[^0-9.]/g, ''));
-
-    const options = {
-        amount: Math.round(numericAmount * 100), // amount in paisa
-        currency,
-        receipt: `receipt_${Date.now()}`,
-    };
+    const { amount, currency = 'INR', chitPlanId } = req.body;
 
     try {
+        // Remove any non-numeric characters from amount
+        const numericAmount = parseFloat(amount.toString().replace(/[^0-9.]/g, ''));
+        const amountInPaisa = Math.round(numericAmount * 100);
+
+        const options = {
+            amount: amountInPaisa, // amount in paisa
+            currency,
+            receipt: `receipt_${Date.now()}`,
+        };
+
+        // --- RAZORPAY ROUTE LOGIC ---
+        // If chitPlanId is present, we try to route funds directly to merchant
+        if (chitPlanId) {
+            const chitPlan = await ChitPlan.findById(chitPlanId).populate('merchant');
+            if (chitPlan && chitPlan.merchant && chitPlan.merchant.razorpayAccountId) {
+                // Determine transfer amount (Full amount for now, or subtract commission if needed)
+                // Assuming 100% goes to merchant as per earlier context
+                options.transfers = [
+                    {
+                        account: chitPlan.merchant.razorpayAccountId,
+                        amount: amountInPaisa,
+                        currency: "INR",
+                        notes: {
+                            plan_id: chitPlanId,
+                            merchant_name: chitPlan.merchant.name
+                        },
+                        linked_account_notes: [
+                            "plan_id"
+                        ],
+                        on_hold: 0, // 0 = Settle immediately per merchant schedule
+                        on_hold_until: null
+                    }
+                ];
+                console.log(`Route: Adding transfer to ${chitPlan.merchant.razorpayAccountId} for ₹${numericAmount}`);
+            }
+        }
+
         const order = await razorpay.orders.create(options);
         res.json(order);
     } catch (error) {
         console.error("Razorpay Error:", error);
+        // If Route is not enabled, this might fail. We should handle it or let it fail so user knows.
+        // For graceful fallback in testing, if error is due to transfers, we could retry without transfers,
+        // but user explicitly asked for Route.
         res.status(500).json({ message: 'Razorpay Order Creation Failed', error });
     }
 };
+
+// ... verifySubscriptionPayment stays the same ...
 
 // @desc    Verify Razorpay Payment
 // @route   POST /api/payments/verify-subscription-payment

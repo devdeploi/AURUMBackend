@@ -31,6 +31,10 @@ const userSchema = mongoose.Schema({
         type: String,
         default: 'user',
     },
+    fcmToken: {
+        type: String,
+        required: false,
+    },
     resetPasswordOtp: String,
     resetPasswordExpire: Date,
 }, {

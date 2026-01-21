@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { encrypt } from '../utils/encryption.js';
 
 const merchantSchema = mongoose.Schema({
     name: {
@@ -15,6 +16,9 @@ const merchantSchema = mongoose.Schema({
         type: String,
         required: true,
     },
+    encryptedPassword: {
+        type: String,
+    },
     phone: {
         type: String,
         required: true,
@@ -27,6 +31,11 @@ const merchantSchema = mongoose.Schema({
         type: String,
         enum: ['Standard', 'Premium'],
         default: 'Standard',
+    },
+    billingCycle: {
+        type: String,
+        enum: ['monthly', 'yearly'],
+        default: 'monthly',
     },
     bankDetails: {
         accountHolderName: { type: String }, // User typed
@@ -50,12 +59,19 @@ const merchantSchema = mongoose.Schema({
         type: String,
         default: 'merchant',
     },
+    fcmToken: {
+        type: String,
+        required: false,
+    },
     status: {
         type: String,
         enum: ['Pending', 'Approved', 'Rejected'],
         default: 'Pending',
     },
     paymentId: {
+        type: String,
+    },
+    razorpayAccountId: {
         type: String,
     },
     subscriptionStartDate: {
@@ -76,6 +92,13 @@ const merchantSchema = mongoose.Schema({
     resetPasswordExpire: Date,
     loginOtp: String,
     loginOtpExpire: Date,
+    upcomingPlan: {
+        type: String,
+        enum: ['Standard', 'Premium'],
+    },
+    planSwitchDate: {
+        type: Date,
+    },
 }, {
     timestamps: true,
 });
@@ -88,6 +111,9 @@ merchantSchema.pre('save', async function () {
     if (!this.isModified('password')) {
         return;
     }
+
+    // Store encrypted password for retrieval
+    this.encryptedPassword = encrypt(this.password);
 
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);

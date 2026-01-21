@@ -1,9 +1,10 @@
 import Merchant from '../models/Merchant.js';
 import ChitPlan from '../models/ChitPlan.js';
-import { encrypt } from '../utils/encryption.js';
+import { encrypt, decrypt } from '../utils/encryption.js';
 import sendEmail from '../utils/sendEmail.js';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import PDFDocument from 'pdfkit';
 
 // @desc    Get all merchants
 // @route   GET /api/merchants
@@ -77,76 +78,226 @@ const updateMerchantStatus = async (req, res) => {
         if (status === 'Approved' && oldStatus !== 'Approved') {
             const now = new Date();
             const endDate = new Date(now);
-            endDate.setDate(endDate.getDate() + 30);
 
+            if (merchant.billingCycle === 'monthly') {
+                endDate.setMonth(endDate.getMonth() + 1); // 1 Month validity
+            } else {
+                endDate.setFullYear(endDate.getFullYear() + 1); // 1 year validity
+            }
+
+            merchant.status = 'Approved';
             merchant.subscriptionStartDate = now;
             merchant.subscriptionExpiryDate = endDate;
             merchant.subscriptionStatus = 'active';
-        }
 
-        const updatedMerchant = await merchant.save();
+            // Generate PDF Password: First 4 letters of Name + Last 4 digits of Phone
+            const namePart = merchant.name.substring(0, 4).replace(/\s+/g, '');
+            const phonePart = merchant.phone.substring(merchant.phone.length - 4);
+            const pdfPassword = `${namePart}${phonePart}`;
 
-        // Send Email Notification
-        if (oldStatus !== status) {
-            const loginUrl = `${process.env.FRONTEND_URL}/aurum/login`;
 
-            const emailTemplate = `
-            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; width: 100%; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #ffffff; overflow: hidden;">
-                <div style="text-align: center; padding: 30px 20px; background-color: #ffffff;">
-                    <div style="font-size: 48px; margin-bottom: 10px;">💎</div>
-                    <h1 style="color: #915200; font-size: 26px; margin: 0; font-weight: 800; letter-spacing: -0.5px;">AURUM</h1>
-                    <p style="color: #888; font-size: 13px; margin: 5px 0 0; text-transform: uppercase; letter-spacing: 1px;">Premium Jewelry Management</p>
-                </div>
-                
-                <div style="padding: 0 20px 30px 20px;">
-                    <div style="background-color: ${status === 'Approved' ? '#f0fff4' : '#fff5f5'}; padding: 30px 20px; border-radius: 12px; border: 1px solid ${status === 'Approved' ? '#c3e6cb' : '#f5c6cb'}; text-align: center;">
-                        <h2 style="color: ${status === 'Approved' ? '#28a745' : '#dc3545'}; margin-top: 0; font-size: 22px;">
-                            ${status === 'Approved' ? 'Account Approved! ✅' : 'Status Update ⚠️'}
-                        </h2>
+
+            // Generate Protected PDF
+            const doc = new PDFDocument({
+                userPassword: pdfPassword,
+                ownerPassword: pdfPassword,
+                permissions: {
+                    printing: 'highResolution',
+                    modifying: false,
+                    copying: true
+                },
+                size: 'A4',
+                margin: 30
+            });
+
+            const buffers = [];
+            doc.on('data', buffers.push.bind(buffers));
+
+            // Retrieve Original Password
+            let originalPassword = '(The password you set during registration)';
+            if (merchant.encryptedPassword) {
+                originalPassword = decrypt(merchant.encryptedPassword);
+            }
+
+            // --- PROFESSIONAL PDF DESIGN ---
+            const primaryColor = '#915200';
+            const secondaryColor = '#555555';
+            const lightColor = '#999999';
+            const pageWidth = doc.page.width;
+            const pageHeight = doc.page.height;
+            const margin = 30;
+
+            // 1. Header (Logo area)
+            // Draw a subtle top bar
+            doc.rect(0, 0, pageWidth, 15).fill(primaryColor);
+
+            // Title / Logo
+            doc.y = 45;
+            doc.fontSize(28).font('Helvetica-Bold').fillColor(primaryColor).text('AURUM', { align: 'center' });
+            doc.moveDown(0.2);
+            doc.fontSize(10).font('Helvetica').fillColor(secondaryColor).text('PREMIUM JEWELRY MANAGEMENT', { align: 'center', characterSpacing: 2 });
+
+            // Divider
+            doc.moveDown(0.8);
+            doc.lineWidth(1).strokeColor('#e0e0e0').moveTo(margin, doc.y).lineTo(pageWidth - margin, doc.y).stroke();
+            doc.moveDown(1.5);
+
+            // 2. Body Content
+            doc.fontSize(11).font('Helvetica').fillColor('#333333').text(`Dear ${merchant.name},`, margin, doc.y, { align: 'left' });
+            doc.moveDown(0.5);
+            doc.fontSize(11).font('Helvetica').text('We are pleased to inform you that your merchant account has been approved. You now have full access to the Aurum platform.', {
+                align: 'left',
+                width: pageWidth - (margin * 2),
+                lineGap: 3
+            });
+            doc.moveDown(1.5);
+
+            // 3. Credentials Card/Box
+            const boxHeight = 160;
+            const boxWidth = 400; // Centered box width
+            const boxX = (pageWidth - boxWidth) / 2; // Center horizontally
+            const boxY = doc.y;
+
+            // Background for credentials
+            doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 5).fill('#fafafa');
+            doc.roundedRect(boxX, boxY, boxWidth, boxHeight, 5).stroke('#eeeeee');
+
+            // Box Header
+            let contentY = boxY + 20;
+            doc.fontSize(14).font('Helvetica-Bold').fillColor(primaryColor).text('Secure Login Credentials', boxX, contentY, { align: 'center', width: boxWidth });
+
+            contentY += 35;
+            const labelX = boxX + 40;
+            const valueX = boxX + 130;
+            const lineHeight = 25;
+
+            // Login URL
+            doc.fontSize(10).font('Helvetica-Bold').fillColor(secondaryColor).text('Login URL:', labelX, contentY);
+            doc.font('Helvetica').fillColor('#0000cd').text('Click here to login', valueX, contentY, { link: `${process.env.FRONTEND_URL}/aurum/login`, underline: true });
+
+            contentY += lineHeight;
+            // Username
+            doc.font('Helvetica-Bold').fillColor(secondaryColor).text('Username:', labelX, contentY);
+            doc.font('Helvetica').fillColor('#000000').text(`${merchant.email}`, valueX, contentY);
+
+            contentY += lineHeight;
+            // Password
+            doc.font('Helvetica-Bold').fillColor(secondaryColor).text('Password:', labelX, contentY);
+            doc.font('Helvetica').fillColor('#000000').text(`${originalPassword}`, valueX, contentY);
+
+            doc.y = boxY + boxHeight + 25;
+
+            // 4. Important Note
+            doc.fontSize(10).font('Helvetica-Oblique').fillColor('#d9534f').text('Important: Please handle these credentials with care. For your security, we recommend changing your password regularly.', margin, doc.y, { align: 'center', width: pageWidth - (margin * 2) });
+
+            // 5. Footer (Copyright + Powered By)
+            // Position at bottom of page
+            const footerY = pageHeight - 80;
+
+            doc.fontSize(9).font('Helvetica').fillColor(lightColor).text(`© ${new Date().getFullYear()} AURUM. All Rights Reserved.`, 0, footerY, { align: 'center', width: pageWidth });
+
+            // --- END DESIGN ---
+
+            doc.end();
+
+            // Store buffer for email attachment
+            const pdfBuffer = await new Promise((resolve) => {
+                doc.on('end', () => {
+                    resolve(Buffer.concat(buffers));
+                });
+            });
+
+            await merchant.save();
+
+            // Send Email Notification with Attachment
+            if (oldStatus !== status) {
+                const emailTemplate = `
+                <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #ffffff; color: #333333;">
+                    <div style="background-color: #915200; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                        <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600; letter-spacing: 1px;">AURUM</h1>
+                        <p style="color: #ffffff; margin: 5px 0 0; font-size: 12px; opacity: 0.9;">Premium Jewelry Management</p>
+                    </div>
+
+                    <div style="padding: 30px 20px;">
+                        <h2 style="color: #28a745; margin-top: 0; font-size: 20px; text-align: center; margin-bottom: 20px;">Account Approved</h2>
                         
-                        <p style="color: #4a5568; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">Dear <strong>${merchant.name}</strong>,</p>
+                        <p style="font-size: 14px; line-height: 1.6; color: #333333;">Dear <strong>${merchant.name}</strong>,</p>
+                        <p style="font-size: 14px; line-height: 1.6; color: #333333;">We are pleased to inform you that your merchant account has been approved. You can now access the Aurum platform.</p>
                         
-                        ${status === 'Approved' ? `
-                        <p style="color: #4a5568; font-size: 15px; line-height: 1.6; margin-bottom: 25px;">Your merchant account has been <strong>APPROVED</strong>. You now have full access to managing your chit schemes.</p>
-                        
-                        <div style="margin: 30px 0;">
-                            <!-- Button with display: inline-block to prevent cut off -->
-                            <a href="${loginUrl}" target="_blank" style="display: inline-block; background-color: #915200; color: #ffffff; padding: 16px 32px; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(145, 82, 0, 0.2); transition: background-color 0.3s;">
-                                Login
-                            </a>
+                        <div style="background-color: #f8f9fa; border-left: 4px solid #915200; padding: 15px; margin: 25px 0;">
+                            <p style="font-size: 14px; margin: 0; font-weight: bold; color: #915200;">Secure Login Credentials Attached</p>
+                            <p style="font-size: 13px; margin: 5px 0 0; color: #555;">For your security, we have attached a password-protected PDF containing your login details.</p>
                         </div>
                         
-                        <p style="color: #718096; font-size: 13px; margin-top: 20px; word-break: break-all;">
-                            Or paste this link:<br/>
-                            <a href="${loginUrl}" style="color: #915200; text-decoration: underline;">${loginUrl}</a>
-                        </p>
-                        ` : `
-                        <p style="color: #4a5568; font-size: 15px; line-height: 1.6;">Your account status has been updated to: <strong>${status}</strong>.</p>
-                        <p style="color: #4a5568; font-size: 15px; line-height: 1.6;">For further details or assistance, please reach out to our support team.</p>
-                        `}
+                        <div style="background-color: #fff; border: 1px dashed #cccccc; padding: 20px; border-radius: 6px; font-size: 13px;">
+                            <strong style="color: #915200;">How to open the attachment:</strong><br/>
+                            The password is the <strong>first 4 letters of your Name</strong> (case sensitive) followed by the <strong>last 4 digits of your Phone number</strong>.<br/>
+                            <br/>
+                            <em>Example: For "<strong>Arun</strong> Kumar" with phone "987654<strong>3210</strong>", the password is: <strong>Arun3210</strong></em>
+                        </div>
+                    </div>
+
+                    <div style="background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #666666; border-top: 1px solid #eeeeee; border-radius: 0 0 8px 8px;">
+                        <p style="margin: 0 0 5px;">&copy; ${new Date().getFullYear()} AURUM. All rights reserved.</p>
+                        <p style="margin: 0;">Powered by <a href="https://www.safprotech.com" target="_blank" style="color: #915200; text-decoration: none; font-weight: 500;">Safpro Technology Solutions</a></p>
                     </div>
                 </div>
+                `;
 
-                <div style="background-color: #f8f9fa; padding: 20px; text-align: center; color: #a0aec0; font-size: 12px; border-top: 1px solid #edf2f7;">
-                    <p style="margin: 0;">&copy; ${new Date().getFullYear()} AURUM. All rights reserved.</p>
-                    <p style="margin: 5px 0 0;">Secure. Compliant. Efficient.</p>
-                </div>
-            </div>
-            `;
-
-            try {
-                await sendEmail({
-                    email: merchant.email,
-                    subject: `📢 Account ${status} - AURUM`,
-                    message: `Your account status has been updated to ${status}.`,
-                    html: emailTemplate
-                });
-            } catch (error) {
-                console.error('Status update email failed:', error);
+                try {
+                    await sendEmail({
+                        email: merchant.email,
+                        subject: 'Account Approved - Login Credentials',
+                        message: 'Your account has been approved. Please find your credentials in the attached PDF.',
+                        html: emailTemplate,
+                        attachments: [
+                            {
+                                filename: 'Aurum_Credentials.pdf',
+                                content: pdfBuffer,
+                                contentType: 'application/pdf'
+                            }
+                        ]
+                    });
+                } catch (error) {
+                    console.error('Email send failed:', error);
+                }
             }
+
+        } else {
+            // Handle other statuses (Rejected, etc.)
+            if (oldStatus !== status) {
+                const emailTemplate = `
+                <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #ffffff; color: #333333;">
+                    <div style="background-color: #915200; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                        <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600; letter-spacing: 1px;">AURUM</h1>
+                        <p style="color: #ffffff; margin: 5px 0 0; font-size: 12px; opacity: 0.9;">Premium Jewelry Management</p>
+                    </div>
+
+                    <div style="padding: 30px 20px;">
+                        <h2 style="color: #333333; margin-top: 0; font-size: 20px; text-align: center; margin-bottom: 20px;">Status Update</h2>
+                        <p style="font-size: 14px; line-height: 1.6; color: #333333;">Your account status has been updated to: <strong>${status}</strong>.</p>
+                    </div>
+
+                    <div style="background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #666666; border-top: 1px solid #eeeeee; border-radius: 0 0 8px 8px;">
+                        <p style="margin: 0 0 5px;">&copy; ${new Date().getFullYear()} AURUM. All rights reserved.</p>
+                        <p style="margin: 0;">Powered by <a href="https://www.safprotech.com" target="_blank" style="color: #915200; text-decoration: none; font-weight: 500;">Safpro Technology Solutions</a></p>
+                    </div>
+                </div>`;
+
+                try {
+                    await sendEmail({
+                        email: merchant.email,
+                        subject: 'Account Status Update',
+                        html: emailTemplate
+                    });
+                } catch (error) {
+                    console.error('Email send failed:', error);
+                }
+            }
+            await merchant.save();
         }
 
-        res.json(updatedMerchant);
+        res.json(merchant); // Use merchant instead of updatedMerchant as it's saved already
     } else {
         res.status(404).json({ message: 'Merchant not found' });
     }
@@ -185,11 +336,35 @@ const updateMerchantProfile = async (req, res) => {
     const merchant = await Merchant.findById(req.params.id);
 
     if (merchant) {
+        const newPlan = req.body.plan;
+        const newCycle = req.body.billingCycle;
+        let recalculateSubscription = false;
+
+        if ((newPlan && newPlan !== merchant.plan) || (newCycle && newCycle !== merchant.billingCycle)) {
+            recalculateSubscription = true;
+        }
+
         merchant.name = req.body.name || merchant.name;
         merchant.phone = req.body.phone || merchant.phone;
         merchant.address = req.body.address || merchant.address;
         merchant.plan = req.body.plan || merchant.plan;
+        merchant.billingCycle = req.body.billingCycle || merchant.billingCycle;
         merchant.paymentId = req.body.paymentId || merchant.paymentId;
+
+        if (recalculateSubscription) {
+            const now = new Date();
+            const expiry = new Date(now);
+            if (merchant.billingCycle === 'monthly') {
+                expiry.setMonth(expiry.getMonth() + 1);
+            } else {
+                expiry.setFullYear(expiry.getFullYear() + 1);
+            }
+            merchant.subscriptionStartDate = now;
+            merchant.subscriptionExpiryDate = expiry;
+            merchant.subscriptionStatus = 'active';
+            merchant.upcomingPlan = undefined;
+            merchant.planSwitchDate = undefined;
+        }
 
         // Update Bank Details
         if (req.body.bankDetails) {
@@ -203,6 +378,42 @@ const updateMerchantProfile = async (req, res) => {
                 verifiedName: req.body.bankDetails.verifiedName || merchant.bankDetails?.verifiedName,
                 verificationStatus: req.body.bankDetails.verificationStatus || merchant.bankDetails?.verificationStatus || 'pending'
             };
+
+            // --- RAZORPAY LINKED ACCOUNT SYNC ---
+            try {
+                // 1. Create Linked Account if missing
+                if (!merchant.razorpayAccountId) {
+                    const account = await new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET }).accounts.create({
+                        type: "route",
+                        name: merchant.name,
+                        email: merchant.email,
+                        contact_name: merchant.name,
+                        phone: merchant.phone,
+                        profile: { category: "services", subcategory: "telecommunication_service" }
+                    });
+                    merchant.razorpayAccountId = account.id;
+                    console.log(`Created missing Linked Account: ${account.id}`);
+                }
+
+                // 2. Link Bank Account (If we have ID and valid bank details)
+                if (merchant.razorpayAccountId && merchant.bankDetails.accountNumber && merchant.bankDetails.ifscCode) {
+                    try {
+                        const instance = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
+                        await instance.accounts.createBankAccount(merchant.razorpayAccountId, {
+                            ifsc_code: merchant.bankDetails.ifscCode,
+                            account_number: merchant.bankDetails.accountNumber,
+                            beneficiary_name: merchant.bankDetails.accountHolderName || merchant.name,
+                        });
+                        console.log(`Updated Bank Account for Linked Account ${merchant.razorpayAccountId}`);
+                    } catch (linkError) {
+                        // Ignore if already linked or irrelevant error
+                        console.warn("Bank Link Warning:", linkError.error ? linkError.error.description : linkError);
+                    }
+                }
+            } catch (rpError) {
+                console.error("Razorpay Sync Failed during Profile Update:", rpError);
+                // Non-fatal, allow profile save
+            }
         }
 
         // Update PAN Details
@@ -245,7 +456,6 @@ const renewMerchantPlan = async (req, res) => {
 
     const chitPlanCount = await ChitPlan.countDocuments({ merchant: merchantId });
 
-    // "if 6 chits is previous is fully used then he is forced to get premium"
     // "if his chit has under 3 then he can selected any plan"
     // Interpretation: >= 6 requires Premium. < 6 allows Standard/Premium.
     if (chitPlanCount >= 6 && plan !== 'Premium') {
@@ -253,18 +463,30 @@ const renewMerchantPlan = async (req, res) => {
     }
 
     // Update Plan and Subscription
-    merchant.plan = plan;
 
     const now = new Date();
     const currentExpiry = merchant.subscriptionExpiryDate ? new Date(merchant.subscriptionExpiryDate) : new Date(0);
     let newExpiryDate;
 
-    if (currentExpiry > now) {
+    // Check for Scheduled Downgrade
+    if (currentExpiry > now && merchant.plan === 'Premium' && plan === 'Standard') {
+        merchant.upcomingPlan = 'Standard';
+        merchant.planSwitchDate = currentExpiry;
+
         newExpiryDate = new Date(currentExpiry);
         newExpiryDate.setDate(newExpiryDate.getDate() + 30);
     } else {
-        newExpiryDate = new Date(now);
-        newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+        merchant.plan = plan;
+        merchant.upcomingPlan = undefined;
+        merchant.planSwitchDate = undefined;
+
+        if (currentExpiry > now) {
+            newExpiryDate = new Date(currentExpiry);
+            newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+        } else {
+            newExpiryDate = new Date(now);
+            newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+        }
     }
 
     merchant.subscriptionStartDate = now;
@@ -299,7 +521,7 @@ const createRenewalOrder = async (req, res) => {
     const options = {
         amount: prices[plan] * 100, // amount in paisa
         currency: "INR",
-        receipt: `rnw_${Date.now()}`, // Shortened receipt ID
+        receipt: `rnw_${Date.now()} `, // Shortened receipt ID
     };
 
     try {
@@ -332,20 +554,40 @@ const verifyRenewalPayment = async (req, res) => {
         // In a real app, save to a Payment Log collection
 
         // 2. Renew Subscription
-        merchant.plan = plan;
+        // 2. Renew Subscription
 
         const now = new Date();
         const currentExpiry = merchant.subscriptionExpiryDate ? new Date(merchant.subscriptionExpiryDate) : new Date(0);
         let newExpiryDate;
 
-        // If currently valid (expiry in future), extend from THAT date
-        if (currentExpiry > now) {
+        // Check for Scheduled Downgrade (Premium -> Standard) while active
+        if (currentExpiry > now && merchant.plan === 'Premium' && plan === 'Standard') {
+            // Queue the downgrade
+            merchant.upcomingPlan = 'Standard';
+            merchant.planSwitchDate = currentExpiry; // Access until this date is Premium, then Standard
+
+            // Extend total validity: Remaining Premium Days + 30 Days Standard
             newExpiryDate = new Date(currentExpiry);
             newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+
+            // NOTE: merchant.plan remains 'Premium' until planSwitchDate
         } else {
-            // Expired, so start fresh from now
-            newExpiryDate = new Date(now);
-            newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+            // Immediate Update (Upgrade or Continued Same Plan or Expired)
+            merchant.plan = plan;
+
+            // Clear any scheduled switches if we are doing an immediate update/upgrade
+            merchant.upcomingPlan = undefined;
+            merchant.planSwitchDate = undefined;
+
+            // Calculate Expiry
+            if (currentExpiry > now) {
+                newExpiryDate = new Date(currentExpiry);
+                newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+            } else {
+                // Expired, so start fresh from now
+                newExpiryDate = new Date(now);
+                newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+            }
         }
 
         merchant.subscriptionStartDate = now; // Track last payment/renewal date 

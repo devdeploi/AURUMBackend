@@ -28,6 +28,16 @@ const protect = async (req, res, next) => {
                 throw new Error('Not authorized, token failed');
             }
 
+            // Check for Scheduled Plan Switch (Merchant)
+            if (req.user.role === 'merchant' && req.user.upcomingPlan && req.user.planSwitchDate) {
+                if (new Date() >= new Date(req.user.planSwitchDate)) {
+                    req.user.plan = req.user.upcomingPlan;
+                    req.user.upcomingPlan = undefined;
+                    req.user.planSwitchDate = undefined;
+                    await req.user.save();
+                }
+            }
+
             next();
         } catch (error) {
             console.error(error);

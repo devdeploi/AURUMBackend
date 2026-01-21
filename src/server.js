@@ -8,6 +8,7 @@ import chitPlanRoutes from './routes/chitPlanRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import merchantRoutes from './routes/merchantRoutes.js';
+import fcmRoutes from './routes/fcmRoutes.js';
 
 dotenv.config();
 
@@ -34,6 +35,7 @@ app.use('/api/chit-plans', chitPlanRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/kyc', kycRoutes);
+app.use('/api/notifications', fcmRoutes);
 
 
 const __dirname = path.resolve();
