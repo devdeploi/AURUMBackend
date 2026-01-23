@@ -66,4 +66,17 @@ const deleteUser = async (req, res) => {
     }
 };
 
-export { getUsers, updateUserProfile, deleteUser };
+// @desc    Get user by ID
+// @route   GET /api/users/:id
+// @access  Private
+const getUserById = async (req, res) => {
+    const user = await User.findById(req.params.id).select('-password');
+
+    if (user) {
+        res.json(user);
+    } else {
+        res.status(404).json({ message: 'User not found' });
+    }
+};
+
+export { getUsers, updateUserProfile, deleteUser, getUserById };

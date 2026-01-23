@@ -58,6 +58,7 @@ const getMerchantChitPlans = async (req, res) => {
 
     const count = await ChitPlan.countDocuments({ merchant: req.params.id });
     const chitPlans = await ChitPlan.find({ merchant: req.params.id })
+        .populate('subscribers.user', 'name email')
         .limit(pageSize)
         .skip(pageSize * (page - 1));
 
