@@ -6,6 +6,12 @@ import { encrypt } from '../utils/encryption.js';
 import sendEmail from '../utils/sendEmail.js';
 import sendSms from '../utils/sendSms.js';
 import razorpay from '../config/razorpay.js';
+import {
+    merchantRegistrationReceivedTemplate,
+    passwordResetOtpTemplate,
+    loginOtpTemplate,
+    verificationCodeTemplate
+} from '../utils/emailTemplates.js';
 
 // @desc    Auth user & get token
 // @route   POST /api/users/login
@@ -128,8 +134,15 @@ const authMerchant = async (req, res) => {
             _id: merchant._id,
             name: merchant.name,
             email: merchant.email,
+            phone: merchant.phone,
             role: merchant.role,
             plan: merchant.plan,
+            shopLogo: merchant.shopLogo,
+            gstin: merchant.gstin,
+            address: merchant.address,
+            addressProof: merchant.addressProof,
+            bankDetails: merchant.bankDetails,
+            shopImages: merchant.shopImages,
             token: generateToken(merchant._id),
             subscriptionStatus: merchant.subscriptionStatus,
             subscriptionExpiryDate: merchant.subscriptionExpiryDate,
@@ -175,14 +188,12 @@ const registerMerchant = async (req, res) => {
         plan,
         billingCycle: billingCycle || 'monthly',
         paymentId,
-        shopImages, // Save shop images
-        // Save bankDetails directly
+        shopImages,
         bankDetails: bankDetails || {},
         gstin,
         addressProof
     });
 
-    // Create Razorpay Linked Account automatically (Optional - Fail Safe)
     try {
         const account = await razorpay.accounts.create({
             type: "route",
@@ -198,7 +209,6 @@ const registerMerchant = async (req, res) => {
 
         merchant.razorpayAccountId = account.id;
 
-        // Link Bank Account if provided
         if (bankDetails && bankDetails.accountNumber && bankDetails.ifscCode) {
             try {
                 await razorpay.accounts.createBankAccount(account.id, {
@@ -215,10 +225,7 @@ const registerMerchant = async (req, res) => {
         await merchant.save();
 
     } catch (accError) {
-        // Log the error but DO NOT fail the registration. 
-        // Example: Route not enabled, or network issue.
-        // The merchant can retry linking from Dashboard later.
-        console.error("Failed to create Razorpay Linked Account during registration (Non-fatal):", accError);
+        console.error("Failed to create Razorpay Linked Account during registration:", accError);
     }
 
     if (merchant) {
@@ -231,44 +238,14 @@ const registerMerchant = async (req, res) => {
             token: generateToken(merchant._id),
         });
 
-        const emailTemplate = `
-        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; width: 100%; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #ffffff; overflow: hidden;">
-            <div style="text-align: center; padding: 30px 20px; background-color: #ffffff;">
-                <div style="font-size: 48px; margin-bottom: 10px;">💎</div>
-                <h1 style="color: #915200; font-size: 26px; margin: 0; font-weight: 800; letter-spacing: -0.5px;">AURUM</h1>
-                <p style="color: #888; font-size: 13px; margin: 5px 0 0; text-transform: uppercase; letter-spacing: 1px;">Premium Jewelry Management</p>
-            </div>
-            
-            <div style="padding: 0 20px 30px 20px;">
-                <div style="background-color: #f8f9fa; padding: 30px 20px; border-radius: 12px; border: 1px solid #e9ecef;">
-                    <h2 style="color: #333; margin-top: 0; font-size: 22px;">Welcome to Aurum! 🎉</h2>
-                    <p style="color: #4a5568; font-size: 15px; line-height: 1.6;">Dear <strong>${merchant.name}</strong>,</p>
-                    <p style="color: #4a5568; font-size: 15px; line-height: 1.6;">Thank you for registering. Your application is <strong>Under Review</strong>.</p>
-                    
-                    <div style="background-color: #ffffff; padding: 20px; border-radius: 8px; border: 1px dashed #ced4da; margin: 25px 0;">
-                        <h3 style="color: #915200; margin: 0 0 15px 0; font-size: 16px; text-transform: uppercase;">Registration Details</h3>
-                        <p style="margin: 8px 0; color: #4a5568; font-size: 14px;"><strong>Plan:</strong> ${merchant.plan}</p>
-                        <p style="margin: 8px 0; color: #4a5568; font-size: 14px;"><strong>Email:</strong> ${merchant.email}</p>
-                        <p style="margin: 8px 0; color: #4a5568; font-size: 14px;"><strong>Status:</strong> <span style="background-color: #fff3cd; color: #856404; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">Pending Approval</span></p>
-                    </div>
-
-                    <p style="color: #4a5568; font-size: 15px; line-height: 1.6;">We will notify you by email once your account is active.</p>
-                </div>
-            </div>
-
-            <div style="background-color: #f8f9fa; padding: 20px; text-align: center; color: #a0aec0; font-size: 12px; border-top: 1px solid #edf2f7;">
-                <p style="margin: 0;">If you have questions, please contact support.</p>
-                <p style="margin: 5px 0 0;">&copy; ${new Date().getFullYear()} AURUM. All rights reserved.</p>
-            </div>
-        </div>
-        `;
+        const { subject, html: emailHtml } = merchantRegistrationReceivedTemplate(merchant.name, merchant.plan, merchant.email);
 
         try {
             await sendEmail({
                 email: merchant.email,
-                subject: '🎉 Registration Received - AURUM',
+                subject: `🎉 ${subject} - AURUM`,
                 message: `Welcome to AURUM. Your registration for ${merchant.plan} plan is received.`,
-                html: emailTemplate
+                html: emailHtml
             });
         } catch (error) {
             console.error('Registration email failed:', error);
@@ -279,15 +256,19 @@ const registerMerchant = async (req, res) => {
 };
 
 const forgotPassword = async (req, res) => {
-    const { email } = req.body;
-    let user = await User.findOne({ email });
+    const { email: identifier } = req.body;
+
+    const isEmail = identifier.includes('@');
+    const query = isEmail ? { email: identifier } : { phone: identifier };
+
+    let user = await User.findOne(query);
 
     if (!user) {
-        user = await Merchant.findOne({ email });
+        user = await Merchant.findOne(query);
     }
 
     if (!user) {
-        return res.status(404).json({ message: 'Email not registered' });
+        return res.status(404).json({ message: 'Account not registered' });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -297,66 +278,51 @@ const forgotPassword = async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    const message = `Your password reset OTP is ${otp}`;
+    const message = `Your password reset OTP is ${otp}. Valid for 10 minutes.`;
 
-    const emailTemplate = `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; width: 100%; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #ffffff; overflow: hidden;">
-        <div style="text-align: center; padding: 30px 20px; background-color: #ffffff;">
-            <div style="font-size: 48px; margin-bottom: 10px;">💎</div>
-            <h1 style="color: #915200; font-size: 26px; margin: 0; font-weight: 800; letter-spacing: -0.5px;">AURUM</h1>
-            <p style="color: #888; font-size: 13px; margin: 5px 0 0; text-transform: uppercase; letter-spacing: 1px;">Premium Jewelry Management</p>
-        </div>
-        
-        <div style="padding: 0 20px 30px 20px;">
-            <div style="background-color: #fff8f0; padding: 30px 20px; border-radius: 12px; border: 1px solid #f0e0d0; text-align: center;">
-                <h2 style="color: #915200; margin-top: 0; font-size: 22px;">Reset Your Password</h2>
-                <p style="color: #4a5568; font-size: 15px; line-height: 1.6;">You requested a password reset. Use the code below to proceed:</p>
-                
-                <div style="margin: 25px 0;">
-                    <div style="background-color: #ffffff; color: #915200; font-size: 32px; font-weight: bold; padding: 15px; border: 2px dashed #915200; border-radius: 8px; font-family: monospace; letter-spacing: 5px; display: inline-block; word-break: break-all;">
-                        ${otp}
-                    </div>
-                </div>
-                
-                <p style="color: #718096; font-size: 13px; margin-bottom: 0;">⏳ Valid for 10 minutes.</p>
-            </div>
-        </div>
+    if (user.email) {
+        const { subject: resetSubject, html: resetEmailHtml } = passwordResetOtpTemplate(otp);
 
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center; color: #a0aec0; font-size: 12px; border-top: 1px solid #edf2f7;">
-            <p style="margin: 0;">If you did not request this, you can safely ignore this email.</p>
-            <p style="margin: 5px 0 0;">&copy; ${new Date().getFullYear()} AURUM. All rights reserved.</p>
-        </div>
-    </div>
-    `;
-
-    try {
-        await sendEmail({
-            email: user.email,
-            subject: '🔑 Password Reset OTP - AURUM',
-            message,
-            html: emailTemplate
-        });
-
-        res.status(200).json({ message: 'OTP sent to email' });
-    } catch (error) {
-        user.resetPasswordOtp = undefined;
-        user.resetPasswordExpire = undefined;
-        await user.save({ validateBeforeSave: false });
-        res.status(500).json({ message: 'Email could not be sent' });
+        try {
+            await sendEmail({
+                email: user.email,
+                subject: `🔑 ${resetSubject} - AURUM`,
+                message,
+                html: resetEmailHtml
+            });
+        } catch (error) {
+            console.error('Failed to send reset email:', error);
+        }
     }
+
+    if (user.phone) {
+        try {
+            await sendSms({
+                phone: user.phone,
+                message: `Your AURUM Password Reset OTP is ${otp}. Valid for 10 minutes.`
+            });
+        } catch (error) {
+            console.error('Failed to send reset SMS:', error);
+        }
+    }
+
+    res.status(200).json({ message: 'OTP sent to your registered email/phone' });
 };
 
 const resetPassword = async (req, res) => {
-    const { email, otp, newPassword } = req.body;
+    const { email: identifier, otp, newPassword } = req.body;
 
-    let user = await User.findOne({ email });
+    const isEmail = identifier.includes('@');
+    const query = isEmail ? { email: identifier } : { phone: identifier };
+
+    let user = await User.findOne(query);
 
     if (!user) {
-        user = await Merchant.findOne({ email });
+        user = await Merchant.findOne(query);
     }
 
     if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(404).json({ message: 'Account not registered' });
     }
 
     if (user.resetPasswordOtp === otp && user.resetPasswordExpire > Date.now()) {
@@ -373,16 +339,19 @@ const resetPassword = async (req, res) => {
 };
 
 const verifyOtp = async (req, res) => {
-    const { email, otp } = req.body;
+    const { email: identifier, otp } = req.body;
 
-    let user = await User.findOne({ email });
+    const isEmail = identifier.includes('@');
+    const query = isEmail ? { email: identifier } : { phone: identifier };
+
+    let user = await User.findOne(query);
 
     if (!user) {
-        user = await Merchant.findOne({ email });
+        user = await Merchant.findOne(query);
     }
 
     if (!user) {
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(404).json({ message: 'Account not registered' });
     }
 
     if (user.resetPasswordOtp === otp && user.resetPasswordExpire > Date.now()) {
@@ -392,9 +361,6 @@ const verifyOtp = async (req, res) => {
     }
 };
 
-// @desc    Check if email or phone exists
-// @route   POST /api/check-email
-// @access  Public
 const checkEmailExists = async (req, res) => {
     const { email, phone } = req.body;
 
@@ -426,7 +392,7 @@ const checkEmailExists = async (req, res) => {
 };
 
 const verifyMerchantLoginOtp = async (req, res) => {
-    const { email, otp } = req.body; // email field can contain phone
+    const { email, otp } = req.body;
 
     const isEmail = email.includes('@');
     const query = isEmail ? { email } : { phone: email };
@@ -452,7 +418,7 @@ const verifyMerchantLoginOtp = async (req, res) => {
 };
 
 const sendLoginOtp = async (req, res) => {
-    const { email } = req.body; // email field can contain phone
+    const { email } = req.body;
 
     const isEmail = email.includes('@');
     const query = isEmail ? { email } : { phone: email };
@@ -473,39 +439,14 @@ const sendLoginOtp = async (req, res) => {
     await merchant.save();
 
     if (isEmail) {
-        // Send Email
-        const emailTemplate = `
-        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #ffffff; color: #333333;">
-            <div style="background-color: #915200; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-                <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600; letter-spacing: 1px;">AURUM</h1>
-                <p style="color: #ffffff; margin: 5px 0 0; font-size: 12px; opacity: 0.9;">Premium Jewelry Management</p>
-            </div>
-            
-            <div style="padding: 30px 20px; text-align: center;">
-                <h2 style="color: #915200; margin-top: 0; font-size: 20px;">Login Verification</h2>
-                <p style="font-size: 14px; line-height: 1.6; margin-bottom: 20px;">Use the One-Time Password (OTP) below to securely verify your login.</p>
-                
-                <div style="text-align: center; margin: 25px 0;">
-                    <div style="font-size: 32px; font-weight: bold; color: #915200; border: 2px dashed #915200; padding: 15px 30px; display: inline-block; letter-spacing: 5px; border-radius: 4px;">
-                        ${otp}
-                    </div>
-                </div>
-                <p style="font-size: 12px; color: #666666; margin-bottom: 0;">This code is valid for 10 minutes.</p>
-            </div>
-
-            <div style="background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #666666; border-top: 1px solid #eeeeee; border-radius: 0 0 8px 8px;">
-                <p style="margin: 0 0 5px;">&copy; ${new Date().getFullYear()} AURUM. All rights reserved.</p>
-                <p style="margin: 0;">Powered by <a href="https://www.safprotech.com" target="_blank" style="color: #915200; text-decoration: none; font-weight: 500;">Safpro Technology Solutions</a></p>
-            </div>
-        </div>
-        `;
+        const { subject: loginSubject, html: loginEmailHtml } = loginOtpTemplate(otp);
 
         try {
             await sendEmail({
                 email: merchant.email,
-                subject: 'Login Verification Code - AURUM',
+                subject: `🔑 ${loginSubject} - AURUM`,
                 message: `Your login verification code is ${otp}`,
-                html: emailTemplate
+                html: loginEmailHtml
             });
             return res.json({ message: 'OTP sent to email', sentTo: 'email', otpSent: true });
         } catch (error) {
@@ -513,7 +454,6 @@ const sendLoginOtp = async (req, res) => {
             return res.status(500).json({ message: 'Email could not be sent' });
         }
     } else {
-        // Send SMS
         try {
             await sendSms({
                 phone: merchant.phone,
@@ -551,7 +491,6 @@ const sendRegistrationOtp = async (req, res) => {
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Delete existing OTPs
     await Verification.deleteMany({ email });
     await Verification.create({
         email,
@@ -559,42 +498,16 @@ const sendRegistrationOtp = async (req, res) => {
         otp
     });
 
-    // Send Email
-    const emailTemplate = `
-    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #ffffff; color: #333333;">
-        <div style="background-color: #915200; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600; letter-spacing: 1px;">AURUM</h1>
-            <p style="color: #ffffff; margin: 5px 0 0; font-size: 12px; opacity: 0.9;">Premium Jewelry Management</p>
-        </div>
-        
-        <div style="padding: 30px 20px; text-align: center;">
-            <h2 style="color: #915200; margin-top: 0; font-size: 20px;">Verification Code</h2>
-            <p style="font-size: 14px; line-height: 1.6; margin-bottom: 20px;">Please use the code below to verify your identity.</p>
-            
-            <div style="text-align: center; margin: 25px 0;">
-                <div style="font-size: 32px; font-weight: bold; color: #915200; border: 2px dashed #915200; padding: 15px 30px; display: inline-block; letter-spacing: 5px; border-radius: 4px;">
-                    ${otp}
-                </div>
-            </div>
-             <p style="font-size: 12px; color: #666666; margin-bottom: 0;">This code is valid for 10 minutes.</p>
-        </div>
-
-        <div style="background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #666666; border-top: 1px solid #eeeeee; border-radius: 0 0 8px 8px;">
-            <p style="margin: 0 0 5px;">&copy; ${new Date().getFullYear()} AURUM. All rights reserved.</p>
-            <p style="margin: 0;">Powered by <a href="https://www.safprotech.com" target="_blank" style="color: #915200; text-decoration: none; font-weight: 500;">Safpro Technology Solutions</a></p>
-        </div>
-    </div>
-    `;
+    const { subject: regSubject, html: regEmailHtml } = verificationCodeTemplate(otp);
 
     try {
         await sendEmail({
             email,
-            subject: 'Verification Code - AURUM',
+            subject: `${regSubject} - AURUM`,
             message: `Your verification code is ${otp}`,
-            html: emailTemplate
+            html: regEmailHtml
         });
 
-        // Send SMS
         if (phone) {
             await sendSms({
                 phone,
@@ -612,12 +525,11 @@ const sendRegistrationOtp = async (req, res) => {
 const verifyRegistrationOtp = async (req, res) => {
     const { email, otp } = req.body;
 
-    // Find latest verification record
     const record = await Verification.findOne({ email }).sort({ createdAt: -1 });
 
     if (record) {
         if (record.otp === otp) {
-            await Verification.deleteMany({ email }); // Clear all
+            await Verification.deleteMany({ email });
             res.json({ success: true, message: 'Verified Successfully' });
         } else {
             res.status(400).json({ success: false, message: 'Invalid OTP.' });

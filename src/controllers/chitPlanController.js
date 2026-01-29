@@ -120,15 +120,24 @@ const subscribeToChitPlan = async (req, res) => {
         }
 
         // 3. Create Payment Record
+        const baseAmount = chitPlan.monthlyAmount;
+        const commissionAmount = Number((baseAmount * 0.02).toFixed(2));
+
         const payment = new Payment({
             user: req.user._id,
             merchant: chitPlan.merchant._id,
             chitPlan: chitPlan._id,
-            amount: chitPlan.monthlyAmount, // First installment
+            amount: baseAmount, // First installment base amount
+            commissionAmount: commissionAmount,
             paymentId: paymentId,
             orderId: orderId,
             status: 'Completed',
-            paymentDetails: { razorpay_payment_id: paymentId, razorpay_order_id: orderId, razorpay_signature: signature }
+            paymentDetails: {
+                razorpay_payment_id: paymentId,
+                razorpay_order_id: orderId,
+                razorpay_signature: signature,
+                commissionPaid: commissionAmount
+            }
         });
         await payment.save();
 
@@ -181,7 +190,7 @@ const getMySubscribedPlans = async (req, res) => {
     try {
         const plans = await ChitPlan.find({
             'subscribers.user': req.user._id
-        }).populate('merchant', 'name email phone address');
+        }).populate('merchant', 'name email phone address shopLogo');
 
         // Transform for analytics
         const myPlans = await Promise.all(plans.map(async plan => {

@@ -143,3 +143,61 @@ export const subscriptionAlertMerchantTemplate = (merchantName, userName, planNa
     `;
     return { subject, html: getBaseTemplate(subject, content) };
 };
+
+export const merchantRegistrationReceivedTemplate = (merchantName, planName, email) => {
+    const subject = 'Registration Received';
+    const content = `
+        <p>Dear <strong>${merchantName}</strong>,</p>
+        <p>Thank you for registering. Your application is <strong>Under Review</strong>.</p>
+        <div style="background-color: #fffbf0; border: 1px dashed #915200; padding: 20px; border-radius: 8px; margin: 25px 0;">
+            <p style="margin: 8px 0;"><strong>Plan:</strong> ${planName}</p>
+            <p style="margin: 8px 0;"><strong>Email:</strong> ${email}</p>
+            <p style="margin: 8px 0;"><strong>Status:</strong> <span style="background-color: #fff3cd; color: #856404; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">Pending Approval</span></p>
+        </div>
+        <p>We will notify you by email once your account is active.</p>
+    `;
+    return { subject, html: getBaseTemplate(subject, content) };
+};
+
+export const passwordResetOtpTemplate = (otp) => {
+    const subject = 'Reset Your Password';
+    const content = `
+        <p>You requested a password reset. Use the code below to proceed:</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <div style="background-color: #f3e9bd; color: #915200; font-size: 32px; font-weight: bold; padding: 15px 30px; border: 2px dashed #915200; border-radius: 8px; display: inline-block; letter-spacing: 5px;">
+                ${otp}
+            </div>
+            <p style="color: #666; font-size: 12px; margin-top: 15px;">⏳ This code is valid for 10 minutes.</p>
+        </div>
+        <p>If you did not request this, you can safely ignore this email.</p>
+    `;
+    return { subject, html: getBaseTemplate(subject, content) };
+};
+
+export const loginOtpTemplate = (otp) => {
+    const subject = 'Login Verification';
+    const content = `
+        <p>Use the One-Time Password (OTP) below to securely verify your login.</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <div style="background-color: #f3e9bd; color: #915200; font-size: 32px; font-weight: bold; padding: 15px 30px; border: 2px dashed #915200; border-radius: 8px; display: inline-block; letter-spacing: 5px;">
+                ${otp}
+            </div>
+            <p style="color: #666; font-size: 12px; margin-top: 15px;">⏳ This code is valid for 10 minutes.</p>
+        </div>
+    `;
+    return { subject, html: getBaseTemplate(subject, content) };
+};
+
+export const verificationCodeTemplate = (otp) => {
+    const subject = 'Verification Code';
+    const content = `
+        <p>Please use the code below to verify your identity.</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <div style="background-color: #f3e9bd; color: #915200; font-size: 32px; font-weight: bold; padding: 15px 30px; border: 2px dashed #915200; border-radius: 8px; display: inline-block; letter-spacing: 5px;">
+                ${otp}
+            </div>
+            <p style="color: #666; font-size: 12px; margin-top: 15px;">⏳ This code is valid for 10 minutes.</p>
+        </div>
+    `;
+    return { subject, html: getBaseTemplate(subject, content) };
+};

@@ -153,11 +153,18 @@ const createSubscriptionOrder = async (req, res) => {
         // Remove any non-numeric characters from amount
         const numericAmount = parseFloat(amount.toString().replace(/[^0-9.]/g, ''));
         const amountInPaisa = Math.round(numericAmount * 100);
+        const commissionInPaisa = Math.round(amountInPaisa * 0.02);
+        const totalAmountInPaisa = amountInPaisa + commissionInPaisa;
 
         const options = {
-            amount: amountInPaisa, // amount in paisa
+            amount: totalAmountInPaisa, // amount in paisa (includes 2% commission)
             currency,
             receipt: `receipt_${Date.now()}`,
+            notes: {
+                base_amount: numericAmount,
+                commission_amount: (commissionInPaisa / 100).toFixed(2),
+                chitPlanId: chitPlanId || ''
+            }
         };
 
         // --- RAZORPAY ROUTE LOGIC ---
@@ -266,19 +273,25 @@ const verifyInstallmentPayment = async (req, res) => {
             return;
         }
 
+        // Calculate commission (2% only for online payments)
+        const baseAmount = chitPlan.monthlyAmount;
+        const commissionAmount = Number((baseAmount * 0.02).toFixed(2));
+
         // Create Payment Record
         const payment = new Payment({
             user: req.user._id,
             merchant: chitPlan.merchant,
             chitPlan: chitPlan._id,
-            amount: chitPlan.monthlyAmount,
+            amount: baseAmount,
+            commissionAmount: commissionAmount,
             paymentId: r_payment_id,
             status: 'Completed',
             paymentDetails: {
                 razorpay_order_id: r_order_id,
                 razorpay_payment_id: r_payment_id,
                 razorpay_signature: r_signature,
-                type: 'installment'
+                type: 'installment',
+                commissionPaid: commissionAmount
             }
         });
 

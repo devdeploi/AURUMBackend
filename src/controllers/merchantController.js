@@ -421,12 +421,24 @@ const updateMerchantProfile = async (req, res) => {
             merchant.gstin = req.body.gstin;
         }
 
+        if (req.body.legalName) {
+            merchant.legalName = req.body.legalName;
+        }
+
+        if (req.body.panNumber) {
+            merchant.panNumber = req.body.panNumber;
+        }
+
         if (req.body.addressProof) {
             merchant.addressProof = req.body.addressProof;
         }
 
         if (req.body.shopImages) {
             merchant.shopImages = req.body.shopImages;
+        }
+
+        if (req.body.hasOwnProperty('shopLogo')) {
+            merchant.shopLogo = req.body.shopLogo;
         }
 
         const updatedMerchant = await merchant.save();

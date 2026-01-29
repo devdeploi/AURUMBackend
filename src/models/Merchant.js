@@ -54,6 +54,12 @@ const merchantSchema = mongoose.Schema({
     addressProof: {
         type: String,
     },
+    legalName: {
+        type: String,
+    },
+    panNumber: {
+        type: String,
+    },
 
     role: {
         type: String,
@@ -88,6 +94,9 @@ const merchantSchema = mongoose.Schema({
     shopImages: [{
         type: String,
     }],
+    shopLogo: {
+        type: String,
+    },
     resetPasswordOtp: String,
     resetPasswordExpire: Date,
     loginOtp: String,

@@ -20,6 +20,10 @@ const paymentSchema = mongoose.Schema({
         type: Number,
         required: true,
     },
+    commissionAmount: {
+        type: Number,
+        default: 0
+    },
     paymentId: {
         type: String, // PayPal transaction ID or generated ID
         required: false,
