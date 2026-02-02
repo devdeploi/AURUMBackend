@@ -5,7 +5,7 @@ import { protect, merchantOnly } from '../middleware/authMiddleware.js'; // Assu
 const router = express.Router();
 
 // Currently just protect, in real app add adminOnly middleware
-router.route('/').get(getUsers);
-router.route('/:id').get(getUserById).put(updateUserProfile).delete(deleteUser);
+router.route('/').get(protect, getUsers);
+router.route('/:id').get(protect, getUserById).put(protect, updateUserProfile).delete(protect, deleteUser);
 
 export default router;

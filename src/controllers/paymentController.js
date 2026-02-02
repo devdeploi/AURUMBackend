@@ -153,11 +153,19 @@ const createSubscriptionOrder = async (req, res) => {
         // Remove any non-numeric characters from amount
         const numericAmount = parseFloat(amount.toString().replace(/[^0-9.]/g, ''));
         const amountInPaisa = Math.round(numericAmount * 100);
-        const commissionInPaisa = Math.round(amountInPaisa * 0.02);
+
+        // Commission Logic:
+        // Only apply 2% commission if it's a USER paying for a CHIT PLAN (chitPlanId exists).
+        // If chitPlanId is missing, it's a MERCHANT paying for SUBSCRIPTION (no commission).
+        let commissionInPaisa = 0;
+        if (chitPlanId) {
+            commissionInPaisa = Math.round(amountInPaisa * 0.02);
+        }
+
         const totalAmountInPaisa = amountInPaisa + commissionInPaisa;
 
         const options = {
-            amount: totalAmountInPaisa, // amount in paisa (includes 2% commission)
+            amount: totalAmountInPaisa, // amount in paisa (includes commission only for users)
             currency,
             receipt: `receipt_${Date.now()}`,
             notes: {

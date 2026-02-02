@@ -4,6 +4,6 @@ import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.post('/register-token',registerFCMToken);
+router.post('/register-token', protect, registerFCMToken);
 
 export default router;

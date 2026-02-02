@@ -8,17 +8,17 @@ const router = express.Router();
 
 router.route('/')
     .get(getChitPlans)
-    .post(createChitPlan);
+    .post(protect, merchantOnly, createChitPlan);
 
-router.get('/my-subscribers',  getMerchantSubscribers);
+router.get('/my-subscribers', protect, merchantOnly, getMerchantSubscribers);
 router.get('/merchant/:id', getMerchantChitPlans);
-router.get('/user/:userId', getUserSubscribedPlans);
-router.get('/my-plans',  getMySubscribedPlans);
-// router.get('/merchant/:id', getMerchantChitPlans); // Already there
-router.route('/:id')
-    .put(updateChitPlan)
-    .delete(deleteChitPlan);
+router.get('/user/:userId', protect, getUserSubscribedPlans); // Admin/User protect
+router.get('/my-plans', protect, getMySubscribedPlans);
 
-router.post('/:id/subscribe', subscribeToChitPlan);
+router.route('/:id')
+    .put(protect, merchantOnly, updateChitPlan)
+    .delete(protect, merchantOnly, deleteChitPlan);
+
+router.post('/:id/subscribe', protect, subscribeToChitPlan);
 
 export default router;

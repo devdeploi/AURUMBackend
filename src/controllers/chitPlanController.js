@@ -14,10 +14,11 @@ import {
 // @access  Private/Merchant
 const createChitPlan = async (req, res) => {
     // Check if merchant's bank account verification is done
-    if (req.user.bankDetails?.verificationStatus !== 'verified') {
-        res.status(403).json({ message: 'Bank details verification required to create chit plans.' });
-        return;
-    }
+    // Check if merchant's bank account verification is done
+    // if (req.user.bankDetails?.verificationStatus !== 'verified') {
+    //     res.status(403).json({ message: 'Bank details verification required to create chit plans.' });
+    //     return;
+    // }
 
     const { planName, monthlyAmount, durationMonths, description, totalAmount: providedTotal } = req.body;
 

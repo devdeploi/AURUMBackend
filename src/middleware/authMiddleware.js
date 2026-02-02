@@ -40,7 +40,13 @@ const protect = async (req, res, next) => {
 
             next();
         } catch (error) {
-            console.error(error);
+            if (error.name === 'JsonWebTokenError') {
+                console.error('JWT Error: Invalid Signature or Token Malformed');
+            } else if (error.name === 'TokenExpiredError') {
+                console.error('JWT Error: Token Expired');
+            } else {
+                console.error('Auth Middleware Error:', error);
+            }
             res.status(401).json({ message: 'Not authorized, token failed' });
         }
     }
