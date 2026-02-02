@@ -514,24 +514,24 @@ const renewMerchantPlan = async (req, res) => {
 // @route   POST /api/merchants/create-renewal-order
 // @access  Private/Merchant
 const createRenewalOrder = async (req, res) => {
-    const { plan } = req.body;
+    const { plan, billingCycle } = req.body;
     const instance = new Razorpay({
         key_id: process.env.RAZORPAY_KEY_ID,
         key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
 
     // Define Prices
-    const prices = {
-        'Standard': 1500, // INR
-        'Premium': 5000
-    };
-
-    if (!prices[plan]) {
+    let amount = 0;
+    if (plan === 'Standard') {
+        amount = billingCycle === 'yearly' ? 15000 : 1500;
+    } else if (plan === 'Premium') {
+        amount = billingCycle === 'yearly' ? 25000 : 2500;
+    } else {
         return res.status(400).json({ message: 'Invalid plan selected' });
     }
 
     const options = {
-        amount: prices[plan] * 100, // amount in paisa
+        amount: amount * 100, // amount in paisa
         currency: "INR",
         receipt: `rnw_${Date.now()} `, // Shortened receipt ID
     };
@@ -549,7 +549,7 @@ const createRenewalOrder = async (req, res) => {
 // @route   POST /api/merchants/verify-renewal
 // @access  Private/Merchant
 const verifyRenewalPayment = async (req, res) => {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan, billingCycle } = req.body;
 
     const body = razorpay_order_id + "|" + razorpay_payment_id;
 
@@ -579,8 +579,13 @@ const verifyRenewalPayment = async (req, res) => {
             merchant.planSwitchDate = currentExpiry; // Access until this date is Premium, then Standard
 
             // Extend total validity: Remaining Premium Days + 30 Days Standard
+            // Extend total validity: Remaining Premium Days + Duration based on cycle
             newExpiryDate = new Date(currentExpiry);
-            newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+            if (billingCycle === 'yearly') {
+                newExpiryDate.setFullYear(newExpiryDate.getFullYear() + 1);
+            } else {
+                newExpiryDate.setDate(newExpiryDate.getDate() + 30);
+            }
 
             // NOTE: merchant.plan remains 'Premium' until planSwitchDate
         } else {
@@ -592,12 +597,17 @@ const verifyRenewalPayment = async (req, res) => {
             merchant.planSwitchDate = undefined;
 
             // Calculate Expiry
+            // Calculate Expiry
             if (currentExpiry > now) {
                 newExpiryDate = new Date(currentExpiry);
-                newExpiryDate.setDate(newExpiryDate.getDate() + 30);
             } else {
-                // Expired, so start fresh from now
                 newExpiryDate = new Date(now);
+            }
+
+            // Add Duration based on billing cycle
+            if (billingCycle === 'yearly') {
+                newExpiryDate.setFullYear(newExpiryDate.getFullYear() + 1);
+            } else {
                 newExpiryDate.setDate(newExpiryDate.getDate() + 30);
             }
         }
@@ -605,6 +615,7 @@ const verifyRenewalPayment = async (req, res) => {
         merchant.subscriptionStartDate = now; // Track last payment/renewal date 
         merchant.subscriptionExpiryDate = newExpiryDate;
         merchant.subscriptionStatus = 'active';
+        if (billingCycle) merchant.billingCycle = billingCycle;
 
         const updated = await merchant.save();
 

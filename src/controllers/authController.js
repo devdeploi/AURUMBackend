@@ -397,21 +397,49 @@ const verifyMerchantLoginOtp = async (req, res) => {
     const isEmail = email.includes('@');
     const query = isEmail ? { email } : { phone: email };
 
-    const merchant = await Merchant.findOne(query);
+    let account = await Merchant.findOne(query);
+    let isMerchant = true;
 
-    if (merchant && merchant.loginOtp === otp && merchant.loginOtpExpire > Date.now()) {
-        merchant.loginOtp = undefined;
-        merchant.loginOtpExpire = undefined;
-        await merchant.save();
+    if (!account) {
+        account = await User.findOne(query);
+        isMerchant = false;
+    }
 
-        res.json({
-            _id: merchant._id,
-            name: merchant.name,
-            email: merchant.email,
-            role: merchant.role,
-            plan: merchant.plan,
-            token: generateToken(merchant._id),
-        });
+    if (account && account.loginOtp === otp && account.loginOtpExpire > Date.now()) {
+        account.loginOtp = undefined;
+        account.loginOtpExpire = undefined;
+        await account.save({ validateBeforeSave: false });
+
+        const response = {
+            _id: account._id,
+            name: account.name,
+            email: account.email,
+            role: account.role,
+            token: generateToken(account._id),
+            phone: account.phone,
+        };
+
+        if (isMerchant) {
+            response.plan = account.plan;
+            response.shopLogo = account.shopLogo;
+            response.gstin = account.gstin;
+            response.address = account.address;
+            response.addressProof = account.addressProof;
+            response.bankDetails = account.bankDetails;
+            response.shopImages = account.shopImages;
+            response.subscriptionStatus = account.subscriptionStatus;
+            response.subscriptionExpiryDate = account.subscriptionExpiryDate;
+
+            const isExpired = account.subscriptionStatus === 'expired' ||
+                (account.subscriptionExpiryDate && new Date() > new Date(account.subscriptionExpiryDate));
+            response.isGracePeriod = isExpired &&
+                new Date() <= new Date(new Date(account.subscriptionExpiryDate).getTime() + 24 * 60 * 60 * 1000);
+        } else {
+            response.address = account.address;
+            response.profileImage = account.profileImage;
+        }
+
+        res.json(response);
     } else {
         res.status(400).json({ message: 'Invalid OTP or expired' });
     }
@@ -423,27 +451,33 @@ const sendLoginOtp = async (req, res) => {
     const isEmail = email.includes('@');
     const query = isEmail ? { email } : { phone: email };
 
-    const merchant = await Merchant.findOne(query);
+    let account = await Merchant.findOne(query);
+    let isMerchant = true;
 
-    if (!merchant) {
+    if (!account) {
+        account = await User.findOne(query);
+        isMerchant = false;
+    }
+
+    if (!account) {
         return res.status(404).json({ message: 'Account not registered' });
     }
 
-    if (merchant.status !== 'Approved') {
-        return res.status(401).json({ message: `Account status: ${merchant.status || 'Pending'}.` });
+    if (isMerchant && account.status !== 'Approved') {
+        return res.status(401).json({ message: `Account status: ${account.status || 'Pending'}.` });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    merchant.loginOtp = otp;
-    merchant.loginOtpExpire = Date.now() + 10 * 60 * 1000;
-    await merchant.save();
+    account.loginOtp = otp;
+    account.loginOtpExpire = Date.now() + 10 * 60 * 1000;
+    await account.save({ validateBeforeSave: false });
 
     if (isEmail) {
         const { subject: loginSubject, html: loginEmailHtml } = loginOtpTemplate(otp);
 
         try {
             await sendEmail({
-                email: merchant.email,
+                email: account.email,
                 subject: `🔑 ${loginSubject} - AURUM`,
                 message: `Your login verification code is ${otp}`,
                 html: loginEmailHtml
@@ -456,7 +490,7 @@ const sendLoginOtp = async (req, res) => {
     } else {
         try {
             await sendSms({
-                phone: merchant.phone,
+                phone: account.phone,
                 message: `Your AURUM Login OTP is ${otp}. Valid for 10 minutes.`
             });
             return res.json({ message: 'OTP sent to mobile', sentTo: 'mobile', otpSent: true });
