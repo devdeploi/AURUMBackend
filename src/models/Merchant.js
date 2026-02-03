@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { encrypt } from '../utils/encryption.js';
+import { encrypt, decrypt } from '../utils/encryption.js';
 
 const merchantSchema = mongoose.Schema({
     name: {
@@ -39,17 +39,18 @@ const merchantSchema = mongoose.Schema({
     },
     bankDetails: {
         accountHolderName: { type: String }, // User typed
-        accountNumber: { type: String },
-        ifscCode: { type: String },
+        accountNumber: { type: String, get: decrypt },
+        ifscCode: { type: String, get: decrypt },
         bankName: { type: String },
         branchName: { type: String },
         verifiedName: { type: String }, // Returned from Bank Verify API
         accountType: { type: String, enum: ['Savings', 'Current'] },
         verificationStatus: { type: String, enum: ['pending', 'verified', 'failed'], default: 'pending' },
-        beneficiaryId: { type: String } // For payout integration
+        beneficiaryId: { type: String, get: decrypt } // For payout integration
     },
     gstin: {
         type: String,
+        get: decrypt,
     },
     addressProof: {
         type: String,
@@ -59,6 +60,7 @@ const merchantSchema = mongoose.Schema({
     },
     panNumber: {
         type: String,
+        get: decrypt,
     },
 
     role: {
@@ -76,9 +78,11 @@ const merchantSchema = mongoose.Schema({
     },
     paymentId: {
         type: String,
+        get: decrypt,
     },
     razorpayAccountId: {
         type: String,
+        get: decrypt,
     },
     subscriptionStartDate: {
         type: Date,
@@ -110,6 +114,8 @@ const merchantSchema = mongoose.Schema({
     },
 }, {
     timestamps: true,
+    toJSON: { getters: true },
+    toObject: { getters: true },
 });
 
 merchantSchema.methods.matchPassword = async function (enteredPassword) {
@@ -117,6 +123,29 @@ merchantSchema.methods.matchPassword = async function (enteredPassword) {
 };
 
 merchantSchema.pre('save', async function () {
+    // Encrypt sensitive fields if modified
+    if (this.isModified('bankDetails.accountNumber') && this.bankDetails.accountNumber) {
+        this.bankDetails.accountNumber = encrypt(this.bankDetails.accountNumber);
+    }
+    if (this.isModified('bankDetails.ifscCode') && this.bankDetails.ifscCode) {
+        this.bankDetails.ifscCode = encrypt(this.bankDetails.ifscCode);
+    }
+    if (this.isModified('bankDetails.beneficiaryId') && this.bankDetails.beneficiaryId) {
+        this.bankDetails.beneficiaryId = encrypt(this.bankDetails.beneficiaryId);
+    }
+    if (this.isModified('panNumber') && this.panNumber) {
+        this.panNumber = encrypt(this.panNumber);
+    }
+    if (this.isModified('gstin') && this.gstin) {
+        this.gstin = encrypt(this.gstin);
+    }
+    if (this.isModified('paymentId') && this.paymentId) {
+        this.paymentId = encrypt(this.paymentId);
+    }
+    if (this.isModified('razorpayAccountId') && this.razorpayAccountId) {
+        this.razorpayAccountId = encrypt(this.razorpayAccountId);
+    }
+
     if (!this.isModified('password')) {
         return;
     }
