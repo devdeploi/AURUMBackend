@@ -25,6 +25,11 @@ const chitPlanSchema = mongoose.Schema({
     description: {
         type: String,
     },
+    returnType: {
+        type: String,
+        enum: ['Gold', 'Cash'],
+        default: 'Cash'
+    },
     subscribers: [
         {
             user: {

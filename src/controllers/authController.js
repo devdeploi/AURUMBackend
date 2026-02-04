@@ -99,6 +99,12 @@ const authMerchant = async (req, res) => {
     const merchant = await Merchant.findOne(query);
 
     if (merchant && (await merchant.matchPassword(password))) {
+        // iOS Login Restriction (Premium Only)
+        if (req.body.platform === 'ios' && merchant.plan !== 'Premium') {
+            res.status(403).json({ message: 'Access to the iOS app is available only for Premium plan users.' });
+            return;
+        }
+
         if (merchant.status === 'Rejected') {
             res.status(401).json({ message: `Your account is ${merchant.status || 'Rejected'}. Please contact Admin for Refund.` });
             return;

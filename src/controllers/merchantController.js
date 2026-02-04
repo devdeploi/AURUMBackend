@@ -469,9 +469,12 @@ const renewMerchantPlan = async (req, res) => {
     const chitPlanCount = await ChitPlan.countDocuments({ merchant: merchantId });
 
     // "if his chit has under 3 then he can selected any plan"
-    // Interpretation: >= 6 requires Premium. < 6 allows Standard/Premium.
-    if (chitPlanCount >= 6 && plan !== 'Premium') {
-        return res.status(400).json({ message: 'You have utilized 6 or more chits. You must upgrade to Premium Plan.' });
+    // Basic: 3 Chits, Standard: 6 Chits, Premium: 9+ Chits
+    if (chitPlanCount > 3 && plan === 'Basic') {
+        return res.status(400).json({ message: 'You have more than 3 chits. You must choose Standard or Premium.' });
+    }
+    if (chitPlanCount > 6 && plan === 'Standard') {
+        return res.status(400).json({ message: 'You have more than 6 chits. You must choose Premium.' });
     }
 
     // Update Plan and Subscription
@@ -522,10 +525,12 @@ const createRenewalOrder = async (req, res) => {
 
     // Define Prices
     let amount = 0;
-    if (plan === 'Standard') {
-        amount = billingCycle === 'yearly' ? 15000 : 1500;
+    if (plan === 'Basic') {
+        amount = billingCycle === 'yearly' ? 17700 : 1770; // +18% GST
+    } else if (plan === 'Standard') {
+        amount = billingCycle === 'yearly' ? 29500 : 2950; // +18% GST
     } else if (plan === 'Premium') {
-        amount = billingCycle === 'yearly' ? 25000 : 2500;
+        amount = billingCycle === 'yearly' ? 41300 : 4130;  // +18% GST
     } else {
         return res.status(400).json({ message: 'Invalid plan selected' });
     }

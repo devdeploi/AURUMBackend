@@ -20,7 +20,7 @@ const createChitPlan = async (req, res) => {
     //     return;
     // }
 
-    const { planName, monthlyAmount, durationMonths, description, totalAmount: providedTotal } = req.body;
+    const { planName, monthlyAmount, durationMonths, description, returnType, totalAmount: providedTotal } = req.body;
 
     const totalAmount = providedTotal || (monthlyAmount * durationMonths);
 
@@ -30,7 +30,8 @@ const createChitPlan = async (req, res) => {
         monthlyAmount,
         durationMonths,
         totalAmount,
-        description
+        description,
+        returnType // Add returnType
     });
 
     const createdChitPlan = await chitPlan.save();
@@ -241,7 +242,7 @@ const getMySubscribedPlans = async (req, res) => {
 // @route   PUT /api/chit-plans/:id
 // @access  Private/Merchant
 const updateChitPlan = async (req, res) => {
-    const { planName, monthlyAmount, durationMonths, description } = req.body;
+    const { planName, monthlyAmount, durationMonths, description, returnType } = req.body;
     const chitPlan = await ChitPlan.findById(req.params.id);
 
     if (chitPlan) {
@@ -253,7 +254,9 @@ const updateChitPlan = async (req, res) => {
         chitPlan.planName = planName || chitPlan.planName;
         chitPlan.monthlyAmount = monthlyAmount || chitPlan.monthlyAmount;
         chitPlan.durationMonths = durationMonths || chitPlan.durationMonths;
+        chitPlan.durationMonths = durationMonths || chitPlan.durationMonths;
         chitPlan.description = description || chitPlan.description;
+        chitPlan.returnType = returnType || chitPlan.returnType; // Update returnType
 
         if (req.body.totalAmount) {
             chitPlan.totalAmount = req.body.totalAmount;

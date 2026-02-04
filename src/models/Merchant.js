@@ -29,7 +29,7 @@ const merchantSchema = mongoose.Schema({
     },
     plan: {
         type: String,
-        enum: ['Standard', 'Premium'],
+        enum: ['Basic', 'Standard', 'Premium'],
         default: 'Standard',
     },
     billingCycle: {
