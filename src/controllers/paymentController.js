@@ -628,6 +628,49 @@ const getSubscriberPaymentHistory = async (req, res) => {
     }
 };
 
+// @desc    Get payments for a specific date (Premium Feature)
+// @route   GET /api/payments/search/date
+// @access  Private/Merchant
+const getPaymentsByDate = async (req, res) => {
+    const { date } = req.query;
+
+    if (!date) {
+        return res.status(400).json({ message: 'Date parameter is required' });
+    }
+
+    // Check Premium Status
+    // Assuming req.user is populated with merchant details including 'plan'
+    // If not, we might need to query Merchant model, but typically auth middleware populates user.
+    // Based on previous contexts, merchant object often has 'plan' field ('Basic' or 'Premium').
+    if (req.user.plan !== 'Premium') {
+        return res.status(403).json({ message: 'This feature is available only for Premium merchants' });
+    }
+
+    try {
+        const searchDate = new Date(date);
+        const startOfDay = new Date(searchDate.setHours(0, 0, 0, 0));
+        const endOfDay = new Date(searchDate.setHours(23, 59, 59, 999));
+
+        const payments = await Payment.find({
+            merchant: req.user._id,
+            status: { $regex: 'Completed', $options: 'i' }, // Flexible match for 'Completed'
+            paymentDate: {
+                $gte: startOfDay,
+                $lte: endOfDay
+            }
+        })
+            .populate('user', 'name phone email profileImage')
+            .populate('chitPlan', 'planName totalAmount')
+            .sort({ paymentDate: -1 });
+
+        res.json(payments);
+
+    } catch (error) {
+        console.error("Error searching payments by date:", error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
 export {
     createPayment,
     executePayment,
@@ -642,5 +685,6 @@ export {
 
     rejectOfflinePayment,
     recordManualPayment,
-    getSubscriberPaymentHistory
+    getSubscriberPaymentHistory,
+    getPaymentsByDate
 };

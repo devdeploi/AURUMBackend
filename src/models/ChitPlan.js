@@ -54,6 +54,22 @@ const chitPlanSchema = mongoose.Schema({
             },
             lastPaymentDate: {
                 type: Date
+            },
+            // Withdrawal Request Logic
+            withdrawalRequest: {
+                requestDate: { type: Date },
+                message: { type: String },
+                accountNumber: { type: String },
+                ifsc: { type: String },
+                bankName: { type: String },
+                status: { type: String, default: 'pending' } // pending, approved, rejected
+            },
+            // Settlement Logic
+            settlementDetails: {
+                amount: { type: Number },
+                transactionId: { type: String },
+                settledDate: { type: Date },
+                note: { type: String }
             }
         }
     ]

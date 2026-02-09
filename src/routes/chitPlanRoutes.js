@@ -1,5 +1,5 @@
 import express from 'express';
-import { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan, getMySubscribedPlans, getUserSubscribedPlans } from '../controllers/chitPlanController.js';
+import { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan, getMySubscribedPlans, getUserSubscribedPlans, requestWithdrawal, settleWithdrawal } from '../controllers/chitPlanController.js';
 import { protect, merchantOnly } from '../middleware/authMiddleware.js';
 
 import { getMerchantSubscribers } from '../controllers/subscriberController.js';
@@ -20,5 +20,7 @@ router.route('/:id')
     .delete(protect, merchantOnly, deleteChitPlan);
 
 router.post('/:id/subscribe', protect, subscribeToChitPlan);
+router.post('/:id/withdraw', protect, requestWithdrawal);
+router.post('/:id/settle', protect, merchantOnly, settleWithdrawal);
 
 export default router;

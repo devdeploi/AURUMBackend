@@ -12,7 +12,8 @@ import {
     approveOfflinePayment,
     rejectOfflinePayment,
     recordManualPayment,
-    getSubscriberPaymentHistory
+    getSubscriberPaymentHistory,
+    getPaymentsByDate
 } from '../controllers/paymentController.js';
 import { protect, merchantOnly } from '../middleware/authMiddleware.js';
 
@@ -35,5 +36,6 @@ router.put('/offline/:id/approve', protect, merchantOnly, approveOfflinePayment)
 router.put('/offline/:id/reject', protect, merchantOnly, rejectOfflinePayment);
 router.post('/offline/record', protect, merchantOnly, recordManualPayment);
 router.get('/history/:chitPlanId/:userId', protect, merchantOnly, getSubscriberPaymentHistory);
+router.get('/search/date', protect, merchantOnly, getPaymentsByDate);
 
 export default router;

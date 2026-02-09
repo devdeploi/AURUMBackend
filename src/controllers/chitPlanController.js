@@ -227,7 +227,11 @@ const getMySubscribedPlans = async (req, res) => {
                 remainingMonths,
                 totalSaved,
                 status: sub.status,
-                history // Added history
+                history, // Added history
+                status: sub.status,
+                history, // Added history
+                returnType: plan.returnType,
+                settlementDetails: sub.settlementDetails
             };
         }));
 
@@ -330,7 +334,9 @@ const getUserSubscribedPlans = async (req, res) => {
                 remainingMonths,
                 totalSaved,
                 status: sub.status,
-                history
+                history,
+                returnType: plan.returnType,
+                settlementDetails: sub.settlementDetails
             };
         }));
 
@@ -341,4 +347,100 @@ const getUserSubscribedPlans = async (req, res) => {
     }
 };
 
-export { createChitPlan, getMerchantChitPlans, getChitPlans, subscribeToChitPlan, updateChitPlan, deleteChitPlan, getMySubscribedPlans, getUserSubscribedPlans };
+// @desc    Request withdrawal for a completed chit plan
+// @route   POST /api/chit-plans/:id/withdraw
+// @access  Private (User)
+const requestWithdrawal = async (req, res) => {
+    const { message, accountNumber, ifsc, bankName } = req.body;
+    const chitPlan = await ChitPlan.findById(req.params.id);
+
+    if (!chitPlan) {
+        res.status(404).json({ message: 'Chit plan not found' });
+        return;
+    }
+
+    const subscriber = chitPlan.subscribers.find(
+        (s) => s.user.toString() === req.user._id.toString()
+    );
+
+    if (!subscriber) {
+        res.status(404).json({ message: 'User not subscribed to this plan' });
+        return;
+    }
+
+    // Ensure plan is completed or eligible for withdrawal
+    // Assuming 'completed' is the status when all installments are paid
+    // You might want to also check if installmentsPaid >= durationMonths
+    if (subscriber.status !== 'completed' && subscriber.installmentsPaid < chitPlan.durationMonths) {
+        res.status(400).json({ message: 'Plan is not yet eligible for withdrawal.' });
+        return;
+    }
+
+    subscriber.status = 'requested_withdrawal';
+    subscriber.withdrawalRequest = {
+        requestDate: new Date(),
+        message,
+        accountNumber,
+        ifsc,
+        bankName,
+        status: 'pending'
+    };
+
+    await chitPlan.save();
+    res.json({ message: 'Withdrawal request sent successfully', subscriber });
+};
+
+// @desc    Settle a withdrawal request (Merchant)
+// @route   POST /api/chit-plans/:id/settle
+// @access  Private (Merchant)
+const settleWithdrawal = async (req, res) => {
+    const { userId, amount, transactionId, note } = req.body;
+    const chitPlan = await ChitPlan.findById(req.params.id);
+
+    if (!chitPlan) {
+        res.status(404).json({ message: 'Chit plan not found' });
+        return;
+    }
+
+    if (chitPlan.merchant.toString() !== req.user._id.toString()) {
+        res.status(401).json({ message: 'Not authorized' });
+        return;
+    }
+
+    const subscriber = chitPlan.subscribers.find(
+        (s) => s.user.toString() === userId.toString()
+    );
+
+    if (!subscriber) {
+        res.status(404).json({ message: 'Subscriber not found' });
+        return;
+    }
+
+    subscriber.status = 'settled';
+    if (subscriber.withdrawalRequest) {
+        subscriber.withdrawalRequest.status = 'approved';
+    }
+
+    subscriber.settlementDetails = {
+        amount,
+        transactionId,
+        settledDate: new Date(),
+        note
+    };
+
+    await chitPlan.save();
+    res.json({ message: 'Settlement processed successfully', subscriber });
+};
+
+export {
+    createChitPlan,
+    getMerchantChitPlans,
+    getChitPlans,
+    subscribeToChitPlan,
+    updateChitPlan,
+    deleteChitPlan,
+    getMySubscribedPlans,
+    getUserSubscribedPlans,
+    requestWithdrawal,
+    settleWithdrawal
+};

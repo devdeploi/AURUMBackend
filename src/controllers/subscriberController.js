@@ -43,7 +43,8 @@ const getMerchantSubscribers = async (req, res) => {
                                 planName: plan.planName,
                                 monthlyAmount: plan.monthlyAmount,
                                 totalAmount: plan.totalAmount,
-                                durationMonths: plan.durationMonths
+                                durationMonths: plan.durationMonths,
+                                returnType: plan.returnType
                             },
                             subscription: {
                                 joinedAt: sub.joinedAt,
@@ -51,7 +52,13 @@ const getMerchantSubscribers = async (req, res) => {
                                 totalAmountPaid: totalAmountPaid,
                                 pendingAmount: pendingAmount >= 0 ? pendingAmount : 0,
                                 nextDueDate: nextDueDate,
-                                status: sub.status // active, completed, etc.
+                                totalSaved: installmentsPaid * plan.monthlyAmount,
+                                status: sub.status, // active, completed, etc.
+                                withdrawalRequest: sub.withdrawalRequest,
+                                settlementDetails: sub.settlementDetails
+                            },
+                            withdrawal: {
+                                request: sub.withdrawalRequest
                             }
                         });
                     }

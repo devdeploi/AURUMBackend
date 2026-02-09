@@ -412,6 +412,13 @@ const verifyMerchantLoginOtp = async (req, res) => {
     }
 
     if (account && account.loginOtp === otp && account.loginOtpExpire > Date.now()) {
+
+        // iOS Login Restriction (Premium Only)
+        if (isMerchant && req.body.platform === 'ios' && account.plan !== 'Premium') {
+            res.status(403).json({ message: 'Access to the iOS app is available only for Premium plan users.' });
+            return;
+        }
+
         account.loginOtp = undefined;
         account.loginOtpExpire = undefined;
         await account.save({ validateBeforeSave: false });

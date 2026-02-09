@@ -11,6 +11,7 @@ import fcmRoutes from './routes/fcmRoutes.js';
 import path from 'path';
 import uploadRoutes from './routes/uploadRoutes.js';
 import kycRoutes from './routes/kycRoutes.js';
+import adRoutes from './routes/adRoutes.js';
 
 dotenv.config();
 
@@ -35,6 +36,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/notifications', fcmRoutes);
+app.use('/api/ads', adRoutes);
 
 
 const __dirname = path.resolve();
