@@ -526,7 +526,7 @@ const createRenewalOrder = async (req, res) => {
     // Define Prices
     let amount = 0;
     if (plan === 'Basic') {
-        amount = billingCycle === 'yearly' ? 17700 : 1770; // +18% GST
+        amount = billingCycle === 'yearly' ? 17700 : 1770; // 15000 or 1500 + 18% GST
     } else if (plan === 'Standard') {
         amount = billingCycle === 'yearly' ? 29500 : 2950; // +18% GST
     } else if (plan === 'Premium') {
