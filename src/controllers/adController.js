@@ -7,7 +7,7 @@ import ChitPlan from '../models/ChitPlan.js';
 // @access  Private (Merchant Premium Only)
 const createAd = async (req, res) => {
     try {
-        const { imageUrls, link, startDate, endDate, displayFrequency } = req.body;
+        const { imageUrls, link, startDate, endDate, displayFrequency, title, description } = req.body;
         const merchant = await Merchant.findById(req.merchant._id);
 
         if (merchant.plan !== 'Premium') {

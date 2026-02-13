@@ -39,9 +39,26 @@ router.post('/', upload.single('image'), (req, res) => {
     res.send(`/${req.file.path.replace(/\\/g, '/')}`); // Normalized path
 });
 
-router.post('/multiple', upload.array('images', 5), (req, res) => {
-    const paths = req.files.map(file => `/${file.path.replace(/\\/g, '/')}`);
-    res.json(paths);
+router.post('/multiple', (req, res) => {
+    upload.array('images', 5)(req, res, (err) => {
+        if (err) {
+            console.error('Multer Upload Error:', err);
+            if (err instanceof multer.MulterError) {
+                // A Multer error occurred when uploading.
+                return res.status(400).json({ message: `Upload error: ${err.message}` });
+            } else if (err) {
+                // An unknown error occurred when uploading.
+                return res.status(400).json({ message: err });
+            }
+        }
+
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ message: 'No files uploaded' });
+        }
+
+        const paths = req.files.map(file => `/${file.path.replace(/\\/g, '/')}`);
+        res.json(paths);
+    });
 });
 
 export default router;
