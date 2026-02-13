@@ -4,7 +4,9 @@ import Payment from '../models/Payment.js';
 import ChitPlan from '../models/ChitPlan.js';
 import Merchant from '../models/Merchant.js';
 import User from '../models/User.js';
+import Razorpay from 'razorpay';
 import razorpay from '../config/razorpay.js';
+import { encrypt, decrypt } from '../utils/encryption.js';
 import sendEmail from '../utils/sendEmail.js';
 import {
     paymentRequestTemplate,
@@ -149,23 +151,53 @@ const cancelPayment = (req, res) => {
 const createSubscriptionOrder = async (req, res) => {
     const { amount, currency = 'INR', chitPlanId } = req.body;
 
+    // Default to Platform Keys
+    let razorpayInstance = razorpay;
+    let keyId = process.env.RAZORPAY_KEY_ID;
+    let isDirectMerchantPayment = false;
+    let commissionInPaisa = 0;
+
     try {
         // Remove any non-numeric characters from amount
         const numericAmount = parseFloat(amount.toString().replace(/[^0-9.]/g, ''));
         const amountInPaisa = Math.round(numericAmount * 100);
+        let chitPlan = null;
 
-        // Commission Logic:
-        // Only apply 2% commission if it's a USER paying for a CHIT PLAN (chitPlanId exists).
-        // If chitPlanId is missing, it's a MERCHANT paying for SUBSCRIPTION (no commission).
-        let commissionInPaisa = 0;
+        // 1. Fetch ChitPlan & Merchant Details FIRST to decide on keys
         if (chitPlanId) {
+            chitPlan = await ChitPlan.findById(chitPlanId).populate('merchant');
+
+            // Calculate 2% commission/fee for ALL plan payments
             commissionInPaisa = Math.round(amountInPaisa * 0.02);
+        }
+
+        // 2. Determine Payment Mode (Direct vs Platform)
+        if (chitPlan && chitPlan.merchant) {
+            // Check for Direct Merchant Keys
+            if (chitPlan.merchant.razorpayKeyId && chitPlan.merchant.razorpayKeySecret) {
+                try {
+                    const decryptedKeyId = decrypt(chitPlan.merchant.razorpayKeyId);
+                    const decryptedKeySecret = decrypt(chitPlan.merchant.razorpayKeySecret);
+
+                    razorpayInstance = new Razorpay({
+                        key_id: decryptedKeyId,
+                        key_secret: decryptedKeySecret
+                    });
+                    keyId = decryptedKeyId;
+                    isDirectMerchantPayment = true;
+
+                    // Commission is retained (added to total) to cover Gateway Fees in Merchant Account
+
+                } catch (decryptionError) {
+                    console.error("Error decrypting merchant keys, falling back to Platform Route", decryptionError);
+                }
+            }
         }
 
         const totalAmountInPaisa = amountInPaisa + commissionInPaisa;
 
         const options = {
-            amount: totalAmountInPaisa, // amount in paisa (includes commission only for users)
+            amount: totalAmountInPaisa,
             currency,
             receipt: `receipt_${Date.now()}`,
             notes: {
@@ -175,41 +207,34 @@ const createSubscriptionOrder = async (req, res) => {
             }
         };
 
-        // --- RAZORPAY ROUTE LOGIC ---
-        // If chitPlanId is present, we try to route funds directly to merchant
-        if (chitPlanId) {
-            const chitPlan = await ChitPlan.findById(chitPlanId).populate('merchant');
-            if (chitPlan && chitPlan.merchant && chitPlan.merchant.razorpayAccountId) {
-                // Determine transfer amount (Full amount for now, or subtract commission if needed)
-                // Assuming 100% goes to merchant as per earlier context
-                options.transfers = [
-                    {
-                        account: chitPlan.merchant.razorpayAccountId,
-                        amount: amountInPaisa,
-                        currency: "INR",
-                        notes: {
-                            plan_id: chitPlanId,
-                            merchant_name: chitPlan.merchant.name
-                        },
-                        linked_account_notes: [
-                            "plan_id"
-                        ],
-                        on_hold: 0, // 0 = Settle immediately per merchant schedule
-                        on_hold_until: null
-                    }
-                ];
-                console.log(`Route: Adding transfer to ${chitPlan.merchant.razorpayAccountId} for ₹${numericAmount}`);
-            }
+        // 4. Apply Razorpay Route Transfers if using Platform Keys
+        if (!isDirectMerchantPayment && chitPlan && chitPlan.merchant && chitPlan.merchant.razorpayAccountId) {
+            options.transfers = [
+                {
+                    account: chitPlan.merchant.razorpayAccountId,
+                    amount: amountInPaisa, // Merchant gets base amount
+                    currency: "INR",
+                    notes: {
+                        branch: "Main",
+                        name: "Merchant Payout"
+                    },
+                    linked_account_notes: [
+                        "branch"
+                    ],
+                    on_hold: 0,
+                    on_hold_until: null
+                }
+            ];
+            // Platform keeps the difference (totalAmountInPaisa - amountInPaisa = commissionInPaisa)
         }
 
-        const order = await razorpay.orders.create(options);
-        res.json(order);
+        const order = await razorpayInstance.orders.create(options);
+        res.json({ ...order, keyId }); // Return keyId to frontend
+
     } catch (error) {
-        console.error("Razorpay Error:", error);
-        // If Route is not enabled, this might fail. We should handle it or let it fail so user knows.
-        // For graceful fallback in testing, if error is due to transfers, we could retry without transfers,
-        // but user explicitly asked for Route.
-        res.status(500).json({ message: 'Razorpay Order Creation Failed', error });
+        console.error("Razorpay Order Error:", error);
+        console.error("Error Details:", error.error);
+        res.status(500).send("Error creating order");
     }
 };
 
@@ -259,9 +284,22 @@ const verifyInstallmentPayment = async (req, res) => {
     }
 
     try {
+        let secret = process.env.RAZORPAY_KEY_SECRET;
+        let isDirectMerchantPayment = false; // Track payment type
+
+        // Check if Merchant Keys should be used
+        if (chitPlan && chitPlan.merchant && chitPlan.merchant.razorpayKeyId && chitPlan.merchant.razorpayKeySecret) {
+            try {
+                secret = decrypt(chitPlan.merchant.razorpayKeySecret);
+                isDirectMerchantPayment = true; // Mark as Direct
+            } catch (e) {
+                console.error("Error decrypting merchant secret for verification", e);
+            }
+        }
+
         const body = r_order_id + "|" + r_payment_id;
         const expectedSignature = crypto
-            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+            .createHmac('sha256', secret)
             .update(body.toString())
             .digest('hex');
 
@@ -272,6 +310,8 @@ const verifyInstallmentPayment = async (req, res) => {
         }
 
         // Find subscriber
+
+        // ... (check subscriber) ...
         const subscriber = chitPlan.subscribers.find(
             s => s.user.toString() === req.user._id.toString()
         );
@@ -281,14 +321,15 @@ const verifyInstallmentPayment = async (req, res) => {
             return;
         }
 
-        // Calculate commission (2% only for online payments)
+        // Calculate commission (2% for all online payments)
         const baseAmount = chitPlan.monthlyAmount;
+        // Always 2% (Platform Fee or Gateway Fee buffer)
         const commissionAmount = Number((baseAmount * 0.02).toFixed(2));
 
         // Create Payment Record
         const payment = new Payment({
             user: req.user._id,
-            merchant: chitPlan.merchant,
+            merchant: chitPlan.merchant, // Use just the ID if it's populated
             chitPlan: chitPlan._id,
             amount: baseAmount,
             commissionAmount: commissionAmount,

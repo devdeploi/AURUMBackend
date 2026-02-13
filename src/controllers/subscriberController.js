@@ -55,7 +55,8 @@ const getMerchantSubscribers = async (req, res) => {
                                 totalSaved: installmentsPaid * plan.monthlyAmount,
                                 status: sub.status, // active, completed, etc.
                                 withdrawalRequest: sub.withdrawalRequest,
-                                settlementDetails: sub.settlementDetails
+                                settlementDetails: sub.settlementDetails,
+                                deliveryDetails: sub.deliveryDetails
                             },
                             withdrawal: {
                                 request: sub.withdrawalRequest

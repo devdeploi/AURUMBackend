@@ -99,10 +99,31 @@ const subscribeToChitPlan = async (req, res) => {
     const chitPlan = await ChitPlan.findById(req.params.id).populate('merchant');
 
     if (chitPlan) {
+        let secret = process.env.RAZORPAY_KEY_SECRET;
+        let isDirectMerchantPayment = false;
+
+        // Check if Merchant Keys should be used (Decrypted via getter)
+        if (chitPlan.merchant.razorpayKeyId && chitPlan.merchant.razorpayKeySecret) {
+            try {
+                // Since 'populate' returns a document, the getter 'decrypt' has already run.
+                // We access the property directly.
+                // However, to be safe against double-decryption issues if decrypt() is called on plain text:
+                // The decrypt utility returns hash if no colon found.
+                // But let's assume property access gives plain text.
+
+                // Mongoose getter issue: If we access .razorpayKeySecret, it is decrypted.
+                // We should use it directly.
+                secret = chitPlan.merchant.razorpayKeySecret;
+                isDirectMerchantPayment = true;
+            } catch (e) {
+                console.error("Error with merchant keys", e);
+            }
+        }
+
         // 1. Verify Payment Signature
         const body = orderId + "|" + paymentId;
         const expectedSignature = crypto
-            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+            .createHmac('sha256', secret)
             .update(body.toString())
             .digest('hex');
 
@@ -123,6 +144,7 @@ const subscribeToChitPlan = async (req, res) => {
 
         // 3. Create Payment Record
         const baseAmount = chitPlan.monthlyAmount;
+        // Always 2% (Platform Fee or Gateway Fee buffer)
         const commissionAmount = Number((baseAmount * 0.02).toFixed(2));
 
         const payment = new Payment({
@@ -432,6 +454,42 @@ const settleWithdrawal = async (req, res) => {
     res.json({ message: 'Settlement processed successfully', subscriber });
 };
 
+// @desc    Mark a gold plan as delivered (Merchant)
+// @route   POST /api/chit-plans/:id/deliver
+// @access  Private (Merchant)
+const markAsDelivered = async (req, res) => {
+    const { userId, notes } = req.body;
+    const chitPlan = await ChitPlan.findById(req.params.id);
+
+    if (!chitPlan) {
+        res.status(404).json({ message: 'Chit plan not found' });
+        return;
+    }
+
+    if (chitPlan.merchant.toString() !== req.user._id.toString()) {
+        res.status(401).json({ message: 'Not authorized' });
+        return;
+    }
+
+    const subscriber = chitPlan.subscribers.find(
+        (s) => s.user.toString() === userId.toString()
+    );
+
+    if (!subscriber) {
+        res.status(404).json({ message: 'Subscriber not found' });
+        return;
+    }
+
+    subscriber.status = 'delivered_gold';
+    subscriber.deliveryDetails = {
+        deliveredDate: new Date(),
+        notes
+    };
+
+    await chitPlan.save();
+    res.json({ message: 'Marked as Delivered', subscriber });
+};
+
 export {
     createChitPlan,
     getMerchantChitPlans,
@@ -442,5 +500,6 @@ export {
     getMySubscribedPlans,
     getUserSubscribedPlans,
     requestWithdrawal,
-    settleWithdrawal
+    settleWithdrawal,
+    markAsDelivered
 };

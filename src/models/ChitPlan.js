@@ -70,6 +70,11 @@ const chitPlanSchema = mongoose.Schema({
                 transactionId: { type: String },
                 settledDate: { type: Date },
                 note: { type: String }
+            },
+            // Delivery Logic (for Gold plans)
+            deliveryDetails: {
+                deliveredDate: { type: Date },
+                notes: { type: String }
             }
         }
     ]

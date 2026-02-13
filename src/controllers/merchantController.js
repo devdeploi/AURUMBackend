@@ -9,6 +9,9 @@ import PDFDocument from 'pdfkit';
 // @desc    Get all merchants
 // @route   GET /api/merchants
 // @access  Public
+// @desc    Get all merchants
+// @route   GET /api/merchants
+// @access  Public
 const getMerchants = async (req, res) => {
     const pageSize = Number(req.query.limit) || 10;
     const page = Number(req.query.page) || 1;
@@ -42,8 +45,9 @@ const getMerchants = async (req, res) => {
         ? { [req.query.sort]: -1 }
         : { createdAt: -1 };
 
+    // EXCLUDE SENSITIVE FIELDS from List View
     const merchants = await Merchant.find(filter)
-        .select('-password')
+        .select('-password -razorpayKeyId -razorpayKeySecret -razorpayAccountId -bankDetails -gstin -panNumber -paymentId')
         .sort(sort)
         .limit(pageSize)
         .skip(pageSize * (page - 1));
@@ -309,7 +313,25 @@ const updateMerchantStatus = async (req, res) => {
 const getMerchantById = async (req, res) => {
     const merchant = await Merchant.findById(req.params.id).select('-password');
     if (merchant) {
-        res.json(merchant);
+        // Check if requester is the merchant owner
+        const isOwner = req.user && req.user._id.toString() === merchant._id.toString();
+        const isAdmin = req.user && req.user.role === 'admin'; // Assuming admin role exists
+
+        if (isOwner || isAdmin) {
+            res.json(merchant);
+        } else {
+            // Strip sensitive fields
+            const safeMerchant = merchant.toObject({ getters: true });
+            delete safeMerchant.razorpayKeyId;
+            delete safeMerchant.razorpayKeySecret;
+            delete safeMerchant.razorpayAccountId;
+            delete safeMerchant.bankDetails;
+            delete safeMerchant.panNumber;
+            delete safeMerchant.gstin;
+            delete safeMerchant.paymentId;
+
+            res.json(safeMerchant);
+        }
     } else {
         res.status(404).json({ message: 'Merchant not found' });
     }
@@ -366,7 +388,15 @@ const updateMerchantProfile = async (req, res) => {
             merchant.planSwitchDate = undefined;
         }
 
-        // Update Bank Details
+        // Update Razorpay Keys
+        if (req.body.razorpayKeyId) {
+            merchant.razorpayKeyId = req.body.razorpayKeyId;
+        }
+        if (req.body.razorpayKeySecret) {
+            merchant.razorpayKeySecret = req.body.razorpayKeySecret;
+        }
+
+        // Update Bank Details (Keeping for record/future use if needed, but primary is now Razorpay Keys)
         if (req.body.bankDetails) {
             merchant.bankDetails = {
                 ...merchant.bankDetails, // Keep existing fields
@@ -378,42 +408,6 @@ const updateMerchantProfile = async (req, res) => {
                 verifiedName: req.body.bankDetails.verifiedName || merchant.bankDetails?.verifiedName,
                 verificationStatus: req.body.bankDetails.verificationStatus || merchant.bankDetails?.verificationStatus || 'pending'
             };
-
-            // --- RAZORPAY LINKED ACCOUNT SYNC ---
-            try {
-                // 1. Create Linked Account if missing
-                if (!merchant.razorpayAccountId) {
-                    const account = await new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET }).accounts.create({
-                        type: "route",
-                        name: merchant.name,
-                        email: merchant.email,
-                        contact_name: merchant.name,
-                        phone: merchant.phone,
-                        profile: { category: "services", subcategory: "telecommunication_service" }
-                    });
-                    merchant.razorpayAccountId = account.id;
-                    console.log(`Created missing Linked Account: ${account.id}`);
-                }
-
-                // 2. Link Bank Account (If we have ID and valid bank details)
-                if (merchant.razorpayAccountId && merchant.bankDetails.accountNumber && merchant.bankDetails.ifscCode) {
-                    try {
-                        const instance = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
-                        await instance.accounts.createBankAccount(merchant.razorpayAccountId, {
-                            ifsc_code: merchant.bankDetails.ifscCode,
-                            account_number: merchant.bankDetails.accountNumber,
-                            beneficiary_name: merchant.bankDetails.accountHolderName || merchant.name,
-                        });
-                        console.log(`Updated Bank Account for Linked Account ${merchant.razorpayAccountId}`);
-                    } catch (linkError) {
-                        // Ignore if already linked or irrelevant error
-                        console.warn("Bank Link Warning:", linkError.error ? linkError.error.description : linkError);
-                    }
-                }
-            } catch (rpError) {
-                console.error("Razorpay Sync Failed during Profile Update:", rpError);
-                // Non-fatal, allow profile save
-            }
         }
 
         // Update PAN Details

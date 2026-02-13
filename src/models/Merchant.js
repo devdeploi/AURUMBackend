@@ -84,6 +84,14 @@ const merchantSchema = mongoose.Schema({
         type: String,
         get: decrypt,
     },
+    razorpayKeyId: {
+        type: String,
+        get: decrypt,
+    },
+    razorpayKeySecret: {
+        type: String,
+        get: decrypt,
+    },
     subscriptionStartDate: {
         type: Date,
     },
@@ -144,6 +152,12 @@ merchantSchema.pre('save', async function () {
     }
     if (this.isModified('razorpayAccountId') && this.razorpayAccountId) {
         this.razorpayAccountId = encrypt(this.razorpayAccountId);
+    }
+    if (this.isModified('razorpayKeyId') && this.razorpayKeyId) {
+        this.razorpayKeyId = encrypt(this.razorpayKeyId);
+    }
+    if (this.isModified('razorpayKeySecret') && this.razorpayKeySecret) {
+        this.razorpayKeySecret = encrypt(this.razorpayKeySecret);
     }
 
     if (!this.isModified('password')) {
